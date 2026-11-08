@@ -165,46 +165,153 @@ Instrumentation call sites are listed here; the pieces live in:
     `UNSETSTR` emit the same event for both the binary/file and `.TEXT`
     outputs.
 
-## Deliberate exclusions and known limitations
+## What is not traced
 
-These sites are *not* traced, with reasons:
+This section is a complete accounting of the filesystem accesses that
+produce no event, or only a partial one, grouped by mechanism.  It was
+compiled by sweeping `src/` for every channel-creation and mutation
+primitive (`perv_open_*`, `open_in`/`open_out*`, `unix_openfile`,
+`unix_rename`/`unix_unlink`/`unix_mkdir`, `sys_remove`/`sys_readdir`,
+`my_unlink`/`my_rmdir`, `recursive_mkdir`, `copy_large_file`,
+`open_for_writing`, `exec_command`/`Unix.system`/`Sys.command`,
+`Marshal.to_channel`, and C stubs); if you change how WeiDU touches the
+filesystem, re-run that sweep and update this list.
 
-1. **Low-level `Case_ins` wrappers.** Excluded by the case-insensitive
-   filesystem assumption above.
-2. **Caller-channel writes** — the caller opens the channel, so the
-   helper cannot emit a complete, accurately-sized event without
-   refactoring:
-   - `src/tlk.ml` (`Tlk.save_tlk`) — a filename/entry-count event is
-     possible, but channel ownership and close/error accounting are
-     caller-side.
-   - `src/biff.ml` (`Biff.save_biff`) / `src/key.ml` (`Key.save_key`) —
-     output channels are opened by callers; semantic events belong at the
-     callers (`TP_MakeBiff`, `Main` BIFF tools).
-3. **Direct writes that bypass the common write helper:**
-   - `src/tppatch.ml` (`baldur.gam` branches) — write directly with
-     `Case_ins.perv_open_out_bin`; a central write funnel would require
-     restructuring those branches.
-   - `src/tpuninstall.ml` (`uninstall_tp2_component`) — restore mixes
-     `copy_large_file` (traced), direct reads, `unix_rename`, and
-     `unix_unlink`; the uninstall path is only partially traced
-     (restores appear as `file_copy`, deletions do not appear).
-   - `src/tpaction.ml` (`TP_Compile`) — BAF output is covered through
-     `Bcs.channel_sink`; dialogue output still goes through
-     `Dc`/`emit_dlg_files` without a per-file completion hook.
-4. **Operation-level gaps that are simple but deferred:**
-   - `TP_DecompressBiff` uses raw `unix_rename`/`unix_unlink`.
-   - Raw `my_unlink`/`my_rmdir` calls outside `TP_Delete`/`TP_Move`.
-   - `Tpuninstall` backup-list reads and cleanup.
-   - `Tppatch` patch-file reads (`load_file` at the patch processing
-     sites).
-   - CLI-only paths in `src/main.ml`, `src/autoupdate.ml`,
-     `src/kit.ml`, `src/automate.ml`, and `src/sql.ml`.
-5. **Out of scope for the FS boundary.** `Tppatch.process_patch2_real`
-   and variable/condition evaluation mutate buffers or interpreter
-   state; they are not filesystem operations.
-6. **Filesystem operations performed inside external commands.** Only
-   the command invocation and its completion are traced; whatever the
-   child process does to the filesystem is outside the trace.
+Writes have three coverage tiers:
+
+1. **Full events** (open *and* completion with byte counts) — the
+   `file_write`/`file_copy`/`file_move`/`file_delete` emitters listed
+   under *What is instrumented*.
+2. **Open-only** — `Util.open_for_writing` fires `file_write_open`, but
+   the writer closes its channel directly, so no completion event with
+   the final byte count is emitted.
+3. **Invisible** — the access uses raw I/O and produces no event at all.
+
+### Open-only writes (tier 2)
+
+These all go through `Util.open_for_writing` (so the destination and
+backup flag are visible in a `file_write_open` event) but complete
+without a traced event:
+
+- **TLK saves** — the `save_tlk` wrapper in `src/main.ml` (end-of-install
+  `dialog.tlk`/`dialogf.tlk` saves, `--tlkout`, `--tlkmerge`); the
+  channel is handed to `Tlk.save_tlk`, which does not close it through a
+  sink.
+- **KEY saves** — the key-rewriting TP2 actions (`TP_DisableFromKey`,
+  `TP_MakeBiff`) in `src/tpaction.ml` open the key file with
+  `open_for_writing` and hand the channel to `Key.save_key`.
+- **BIFF saves** — `Biff.save_biff` (`src/biff.ml`) opens its own
+  `open_for_writing` channel and writes through a raw fd.
+- **DLG saves** — `Parsewrappers.emit_dlg_files` (all compiled dialogue
+  output, including `TP_Compile`) buffers the DLG, then
+  `open_for_writing` + `close_out` with no completion hook.
+- **Text patch actions** — the file-appending actions (`APPEND`,
+  `APPEND_COLUMN`, `SET_COLUMN`) in `src/tpaction.ml` write their
+  destination with `open_for_writing` + `close_out` (inlined variants
+  write nothing and are invisible by design).
+- **`--sql`** — `override/bgee.sql` (`src/sql.ml`).
+- **Self-update** — `src/autoupdate.ml` writes the updated WeiDU copies
+  (this runs during normal installs, not only CLI flows; disabled by
+  `--noautoupdate`).
+- **CLI tool outputs in `src/main.ml`** — the resource-extraction flows
+  (`--unbiff`, `--biff-get`), the BIFF/KEY maintenance flows
+  (`--make-biff`, `--remove-biff`, including the `CHITIN.KEY` rewrite),
+  and the `.D`/TRA translation outputs written through `--out`
+  (`--trans`, `--traify`, `--traify-tlk`, `--forceify`).
+
+### Invisible writes (tier 3)
+
+- **`--log <file>` / `--logapp`** — the debug log channel
+  (`Util.init_log`) is opened with `Case_ins.perv_open_out(_gen)` and
+  closed at exit; it runs during installs, not only CLI flows.
+- **Error dumps** — `Util.get_error_chn`/`Util.error` write
+  `errors/<sort>` files on parse errors.
+- **SPELL.IDS bookkeeping** — `override/spell.ids.installed`
+  (`Util`, on the first backup of `OVERRIDE/SPELL.IDS`),
+  `override/spell.ids.<mod>.<n>.marker` (`Tpuninstall.check_pre_hooks`),
+  and the conditional exit-time `my_unlink` of
+  `override/add_spell.ids` (`src/main.ml`).
+- **C-level cache decompression** — `Cbif.cbf2bif` is a C stub; the
+  `cache/<bif>` file it writes (and the `cache/` directory it creates)
+  are invisible to OCaml-level instrumentation by construction.
+- **`copy_large_file` pre-copy unlink** — when the destination already
+  exists it is removed (`my_unlink`) before the raw-fd copy; that
+  removal emits no event (the subsequent copy does).
+- **Exit-time temporary-file cleanup** — `Load.cbifs_to_rem` (cached
+  decompressed BIFF copies under `cache/`) are removed with `my_unlink`
+  at the end of the run.
+- **Self-update cleanup** — `src/autoupdate.ml` unlinks outdated WeiDU
+  copies before rewriting them.
+- **`baldur.gam` direct writes** — the three `Case_ins.perv_open_out_bin`
+  branches in `src/tppatch.ml` (`baldur.gam`, `override/baldur.gam`).
+- **`TP_DecompressBiff`** — writes the decompressed BIFF with
+  `Case_ins.perv_open_out_bin` and uses raw `unix_rename`/`unix_unlink`.
+- **`--tolower`** — `src/tolower.ml` uses raw `open_out`/`open_in`
+  (`linux.ini` and the ini files it reads), bypassing even `Case_ins`.
+- **`--extract-kits`** — `src/kit.ml` writes kit files with
+  `Case_ins.perv_open_out_bin`.
+- **AST dump files** — `--dump-ast` output (`Astdump.write_dump`) is
+  instrumentation output like the trace file itself and is not traced.
+
+### Reads not traced
+
+- **BIFF container reads.** `Biff.load_biff`/`extract_file`/`extract_tis`
+  read BIFFs through raw file descriptors.  Their content is represented
+  semantically by `resource_read` (provenance, BIFF path, offset,
+  container size, compression) — no `file_read` event is emitted for the
+  container itself.  `chitin.key`, by contrast, is read through
+  `Util.load_file` and is traced.
+- **Backup bookkeeping reads.** The `Mymarshal` readers
+  (`read_unsetstr`, `read_tlkpath`, `read_cli_vars`, `read_readln`) and
+  the direct `Case_ins.perv_open_in_bin` reads of the
+  `UNINSTALL`/`MAPPINGS`/`MOVE` lists in `src/tpuninstall.ml` are not
+  traced (their writes are).
+- **CLI direct parser reads.** A few `src/main.ml` flows read files with
+  raw `Case_ins.perv_open_in` instead of `Util.parse_file`: the
+  `--forceify` `.D` read, the `--tlkcmp` sources, and the old-TRA input
+  of `--traify`.
+
+### Uninstall/restore (partially traced)
+
+`Tpuninstall` restores are traced only where they go through
+`copy_large_file` (visible as `file_copy` with reason
+"restoring a backup").  Not traced: the backup-list reads above, MOVE
+restores (`Case_ins.unix_rename`), deletions (`my_unlink` of
+restored-then-removed files, `READLN`/`ARGS`/`UNSETSTR`/`TLKPATH` backup
+cleanup including `.TEXT` companions, marker unlink), the empty-backup
+directory `my_rmdir` cleanup, the `recursive_mkdir` of restore
+directories, and the SPELL.IDS marker writes.
+
+### External command exceptions
+
+`Util.exec_command` traces `AT_NOW`, `AT_EXIT`, `AT_UNINSTALL` and their
+interactive variants (start/end event pairs).  Untraced executions:
+
+- the **readme `VIEW` prompt** (`Tpwork.do_readme`) runs the viewer with
+  a direct `Unix.system` after user confirmation;
+- the **interactive "Enter arguments" re-exec** (`src/main.ml`) uses
+  `Sys.command` to re-run WeiDU itself — the child process re-traces if
+  `--trace` is part of its arguments;
+- the separate **`weinstall`** binary runs WeiDU via `Unix.system`.
+
+### Operation classes with no events
+
+- **Directory creation** (`recursive_mkdir` for backup/restore
+  directories, `Load`'s `override` mkdir, `cache/`), **directory
+  deletion** outside `TP_Delete` (empty-backup-dir cleanup), and
+  **directory listing** (`sys_readdir`).
+- **Probes** — `file_exists`, `unix_stat64`, `unix_access`:
+  existence/size/permission checks are not recorded.
+- **Attribute changes** — `unix_chmod` after file writes, self-update
+  chmod.
+- **Filesystem effects inside external commands** — only the command
+  invocation and its completion are traced; whatever the child process
+  does is outside the trace.
+
+### Out of scope for the FS boundary
+
+`Tppatch.process_patch2_real` and variable/condition evaluation mutate
+buffers or interpreter state; they are not filesystem operations.
 
 ## Comparing a trace against a filesystem diff
 
