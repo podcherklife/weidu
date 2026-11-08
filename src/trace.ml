@@ -1,10 +1,21 @@
-(* Opt-in JSONL trace of filesystem reads/writes/deletes/moves and external
-   commands.
+(* Execution trace instrumentation.
 
-   This module deliberately has no project dependencies.  It must be usable
-   from the low-level filesystem layer (Case_ins) as well as from Util/Load.
-   It therefore uses raw OCaml I/O for its own output channel and must never be
-   routed through Util.open_for_writing or Case_ins.perv_open_out. *)
+   Records the filesystem operations (reads, writes, deletes, renames) and
+   external command executions of a run as JSONL events, so they can be
+   compared against a reimplementation.  Companion to the AST dumping of
+   Astdump (--dump-ast), which observes the parse/execute pipeline; see
+   doc/trace/execution/README.md for the event schema and the list of
+   instrumented (and excluded) sites.
+
+   This module is purely additive instrumentation: it is inactive unless the
+   --trace flag supplies a path, event failures disable the trace instead of
+   aborting the run, and no traced operation is ever modified.
+
+   It deliberately has no project dependencies.  It must be usable from the
+   low-level filesystem layer (Case_ins) as well as from Util/Load.  It
+   therefore uses raw OCaml I/O for its own output channel and must never be
+   routed through Util.open_for_writing or Case_ins.perv_open_out, which
+   keeps the trace file outside the traced operations. *)
 
 type value =
   | VString of string
@@ -93,6 +104,13 @@ let close () =
 let init path =
   if !enabled then close () ;
   trace_path := path ;
+  (* Mirror Astdump.set_dump_dir: create the parent directory if missing
+   * (single level, failures ignored -- the open below reports them). *)
+  (try
+    let dir = Filename.dirname path in
+    if dir <> "." && dir <> "" && not (Sys.file_exists dir) then
+      Unix.mkdir dir 0o777
+  with _ -> ()) ;
   try
     let ch = open_out_bin path in
     channel := Some ch ;

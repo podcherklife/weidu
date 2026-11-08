@@ -9,7 +9,7 @@ The fixture deliberately keeps the operation set small:
 
 It does not compile BCS/DLG files, touch the TLK, or run any remove/move
 actions. That keeps the first trace comparison focused on the hooks listed in
-`notes/trace-instrument-now.md`.
+`doc/trace/execution/README.md`.
 
 ## Run from the game root
 
@@ -53,10 +53,11 @@ After the parser/line-reader/config hooks were added, a traced run also recorded
 - the TP2 read through `Util.parse_file` (the parser may open the TP2 more than
   once while trying its parse paths);
 - the existing `WeiDU.log` read;
-- the `weidu.conf` write through `Util.save_conf`;
+- the `weidu.conf` write through `Util.save_conf`.
 
-Backup bookkeeping remains deliberately deferred. The source hooks for the TP2
-read and `weidu.conf` are in `src/util.ml`.
+Backup bookkeeping files now emit `file_write` events with
+`kind: bookkeeping`, so they are part of the traced writes and can be
+included in the expected-write set.
 
 On case-insensitive filesystems, `WeiDU.log` and `weidu.log` resolve to the same
 file; normalize the path case when comparing trace paths to a filesystem diff.

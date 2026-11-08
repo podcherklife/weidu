@@ -1572,6 +1572,8 @@ let main () =
     "--no-auto-tp2", Myarg.Set no_auto_tp2, "\tdo not run setup-mymod.tp2 even if argv[0] is setup-mymod.exe" ;
     "--dump-ast", Myarg.String Astdump.set_dump_dir,
     "X\tdump the AST of every parsed file (stages: parse, exec) as typed S-expressions into directory X" ;
+    "--trace", Myarg.String (fun s -> trace_path := Some s),
+    "X\trecord the filesystem reads/writes/deletes/moves and external commands of the run as JSONL events into file X (relative paths are resolved against the TP2 directory)" ;
     "--noselfupdatemsg", Myarg.Clear Autoupdate.self_update_message,"\tdo not print any self-updating messages" ;
     "--update-all", Myarg.Set auto_update_all,"\tauto-update all WeiDU setup files";
     "--args", Myarg.String (fun s -> Var.set_string ("argv[" ^ (string_of_int !counter) ^ "]") s; incr counter),
@@ -1694,7 +1696,6 @@ let main () =
     "--autolog", Myarg.Unit (fun () -> init_log Version.version "WSETUP.DEBUG"), "\tlog output and details to WSETUP.DEBUG" ;
     "--logapp", Myarg.Set append_to_log,"\tappend to log instead of overwriting" ;
     "--log-extern", Myarg.Set log_extern,"\talso log output from commands invoked by WeiDU " ;
-    "--trace", Myarg.String (fun s -> trace_path := Some s), "X\twrite a JSONL filesystem/command trace to X (relative paths go to the TP2 directory)" ;
     "--debug-assign", Myarg.Set Var.debug_assign,"\tPrint out all values assigned to TP2 variables" ;
     "--debug-value", Myarg.Set Tp.debug_pe,"\tPrint out all value expressions" ;
     "--continue", Myarg.Set Tp.continue_on_error,"\tcontinue despite TP2 action errors" ;
@@ -1802,7 +1803,10 @@ let main () =
   | Some trace_file ->
       Trace.init trace_file ;
       Trace.run_start
-        ~version:(version ^ Version.suffix)
+        (* Plain [Version.version], matching the weidu-version field of the
+           AST dumps (--dump-ast), so the two trace streams can be correlated
+           across builds; the binary itself is visible in argv. *)
+        ~version:Version.version
         ~argv:(Array.to_list Sys.argv)
         ~cwd:(Sys.getcwd ())) ;
 
