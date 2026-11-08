@@ -505,6 +505,7 @@ let cmp_tra_file tcmp_src tcmp_dest game =
           let schan = Case_ins.perv_open_in s in
           let lexbuf = lex_init s schan in
           let sresult = Stats.time "parsing .TRA files" (fun () -> Dparser.tra_file Dlexer.initial lexbuf) () in
+          AstdumpDlg.dump_tra Astdump.Parse s sresult ;
           log_or_print "[%s] parsed (%d translation strings)\n" s (List.length sresult);
           close_in schan ;
           pop_context ();
@@ -512,6 +513,7 @@ let cmp_tra_file tcmp_src tcmp_dest game =
           let dchan = Case_ins.perv_open_in d in
           let lexbuf = lex_init d dchan in
           let dresult = Stats.time "parsing .TRA files" (fun () -> Dparser.tra_file Dlexer.initial lexbuf) () in
+          AstdumpDlg.dump_tra Astdump.Parse d dresult ;
           log_or_print "[%s] parsed (%d translation strings)\n" d (List.length dresult);
           close_in dchan ;
           pop_context ();
@@ -843,6 +845,7 @@ let untraify game untraify_d untraify_tra =
   ( match (untraify_d,untraify_tra) with
   | (Some(d),Some(tra)) ->
       let result = parse_file true (File tra) "parsing .tra files" (Dparser.tra_file Dlexer.initial) in
+      AstdumpDlg.dump_tra Astdump.Parse tra result ;
       log_or_print "[%s] has %d translation strings\n" tra
         (List.length result);
       let base,ext = split_resref d in
@@ -1032,6 +1035,7 @@ let traify_file game traify traify_num traify_comment traify_old_tra =
             let lexbuf = lex_init file inchan in
             let tra_file = Stats.time "parsing.TRA files" (fun () ->
               Dparser.tra_file Dlexer.initial lexbuf) () in
+            AstdumpDlg.dump_tra Astdump.Parse x tra_file ;
             let sorted = Dlg.sort_list_for_traify (List.map (fun (i, ts) ->
               (i, (Dlg.lse_of_ts ts))) tra_file) in
             let tra = List.fold_left (fun acc (reference, ls) ->
@@ -1113,6 +1117,7 @@ let compile_baf baf_list game =
       let path = theout.dir ^ "/" ^ name ^ ".bcs" in
       let sink = Bcs.channel_sink ~backup:false path
           (Case_ins.perv_open_out_bin path) in
+      AstdumpBcs.dump_script "baf" Astdump.Exec str script ;
       Bcs.save_bcs game sink script ;
       Bcs.close_sink sink
     with e -> log_and_print "ERROR: problem loading [%s]: %s\n" str
@@ -1565,6 +1570,8 @@ let main () =
     "--change-log-rest",Myarg.Rest (Myarg.String (fun s -> change_log := s :: !change_log)), "\tgenerates a changelog for the given resource (cumulative)";
     "--noautoupdate", Myarg.Set no_auto_update,"\tdo not auto-update WeiDU setup files" ;
     "--no-auto-tp2", Myarg.Set no_auto_tp2, "\tdo not run setup-mymod.tp2 even if argv[0] is setup-mymod.exe" ;
+    "--dump-ast", Myarg.String Astdump.set_dump_dir,
+    "X\tdump the AST of every parsed file (stages: parse, exec) as typed S-expressions into directory X" ;
     "--noselfupdatemsg", Myarg.Clear Autoupdate.self_update_message,"\tdo not print any self-updating messages" ;
     "--update-all", Myarg.Set auto_update_all,"\tauto-update all WeiDU setup files";
     "--args", Myarg.String (fun s -> Var.set_string ("argv[" ^ (string_of_int !counter) ^ "]") s; incr counter),
