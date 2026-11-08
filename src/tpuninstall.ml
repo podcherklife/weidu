@@ -176,6 +176,8 @@ let handle_at_uninstall tp2 m do_uninstall do_interactive_uninstall game =
                 x
               end
               in
+              (* AST dump: right before the TPA actions are executed. *)
+              AstdumpTp.dump_tp_actions "tpa" Astdump.Exec file incl_al ;
               handle_al incl_al ;
             end
                     ) string_list ;
@@ -189,6 +191,8 @@ let handle_at_uninstall tp2 m do_uninstall do_interactive_uninstall game =
                 Hashtbl.replace loaded_tph file x ;
                 x
               in
+              (* AST dump: right before the TPA actions are executed. *)
+              AstdumpTp.dump_tp_actions "tpa" Astdump.Exec file incl_al ;
               handle_al incl_al ;
             end
                     ) string_list ;

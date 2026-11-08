@@ -804,6 +804,8 @@ let rec process_patch2_real process_action tp our_lang patch_filename game buff 
             Hashtbl.replace loaded_tpp file x ;
             x
           in
+          (* AST dump: right before the TPP patches are executed. *)
+          AstdumpTp.dump_tp_patches Astdump.Exec file tpp_parsed ;
           b := List.fold_left (fun acc elt ->
             process_patch2 patch_filename game acc elt) !b tpp_parsed ;)
           string_list ;
@@ -827,6 +829,8 @@ let rec process_patch2_real process_action tp our_lang patch_filename game buff 
             x
           end
           in
+          (* AST dump: right before the TPP patches are executed. *)
+          AstdumpTp.dump_tp_patches Astdump.Exec file tpp_parsed ;
           b := List.fold_left (fun acc elt ->
             process_patch2 patch_filename game acc elt) !b tpp_parsed ;)
           string_list ;
@@ -2374,9 +2378,18 @@ let rec process_patch2_real process_action tp our_lang patch_filename game buff 
           let pre = Var.get_string (eval_pe_str pre) in
           let post = Var.get_string (eval_pe_str post) in
           Refactorbaf.set_refactor (Some(pre, post, case_sens, exact_m));
-          let load_triggers s = parse_file true (String ("",s))
+          let load_triggers s =
+            let result = parse_file true (String ("",s))
               "parsing .baf files"
               (Refactorbafparser.trigger_list Refactorbaflexer.initial) in
+            (* These trigger lists are parsed from fragments of the
+             * buffer being refactored; there is no file of their own,
+             * so they are named after the file containing the patch
+             * (see doc/trace/ast/README.md). *)
+            AstdumpBcs.dump_refactorbaf_triggers Astdump.Parse
+              (patch_filename ^ ".refactor-trigger") result ;
+            result
+          in
           Refactorbaf.parse_triggers := load_triggers;
           let (fn,name) =
             let base,ext = match which with

@@ -13,6 +13,13 @@ open Hashtblinit
 open Util
 open Ids
 
+(* AST dump hooks (see Astdump / doc/trace/ast/README.md).  They are installed by
+ * Parsewrappers once the Astdump modules are loaded; by default they do
+ * nothing, so bcs.ml can stay ahead of the astdump modules in the link
+ * order. *)
+let dump_ids_parse : (string -> Ids.ids list -> unit) ref = ref (fun _ _ -> ())
+let dump_ids_exec : (string -> Ids.ids list -> unit) ref = ref (fun _ _ -> ())
+
 type script = condition_response list
 and condition_response = condition * response list
 and condition = trigger list
@@ -572,6 +579,10 @@ let get_ids_map game ids_filename =
         ids_filename (printexc_to_string e) ; raise e) in
     pop_context () ;
     log_or_print_modder "[%s.IDS] parsed\n" ids_filename ;
+    !dump_ids_parse ids_filename result ;
+    (* Parse and execution (make_ids_map) are adjacent for IDS files;
+     * both dump points fire here (see doc/trace/ast/README.md). *)
+    !dump_ids_exec ids_filename result ;
     let ids_map = make_ids_map result in
     let my_ids_state = try
       Hashtbl.find all_games_ids_state game.Load.game_path

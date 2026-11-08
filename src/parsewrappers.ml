@@ -11,6 +11,7 @@ let load_log () =
   try
     let result = parse_file true (File Tp.log_name) "parsing .log files"
         (Dparser.log_file Dlexer.initial) in
+    AstdumpDlg.dump_log Astdump.Parse Tp.log_name result ;
     Tp.the_log := List.map (fun (a,b,c,d) ->
       ((String.uppercase a),b,c,d,Tp.Installed)) result
   with e ->
@@ -19,15 +20,19 @@ let load_log () =
     Tp.the_log := []
 
 let handle_baf_filename filename =
-  parse_file true (File filename) "parsing .baf files"
-    (Bafparser.baf_file Baflexer.initial)
+  let result = parse_file true (File filename) "parsing .baf files"
+      (Bafparser.baf_file Baflexer.initial) in
+  AstdumpBcs.dump_script "baf" Astdump.Parse filename result ;
+  result
 
 let compile_baf_filename game filename =
   try
     let script = parse_file true (File filename) "parsing .baf files"
         (Bafparser.baf_file Baflexer.initial) in
+    AstdumpBcs.dump_script "baf" Astdump.Parse filename script ;
     let name,ext = split_resref (Case_ins.filename_basename filename) in
     let out = open_for_writing ("override/" ^ name ^ ".bcs") true in
+    AstdumpBcs.dump_script "baf" Astdump.Exec filename script ;
     Bcs.save_bcs game (Bcs.Save_BCS_OC(out)) script ;
     close_out out
   with e ->
@@ -36,10 +41,16 @@ let compile_baf_filename game filename =
 
 let handle_script_buffer filename buffer =
   match split_resref (String.uppercase filename) with
-  | _,"BAF" -> parse_file true (String(filename,buffer)) "parsing .baf files"
-        (Bafparser.baf_file Baflexer.initial)
-  | _,_ -> parse_file true (String(filename,buffer)) "parsing .bcs files"
-        (Bcsparser.bcs_file Bcslexer.initial)
+  | _,"BAF" ->
+      let result = parse_file true (String(filename,buffer)) "parsing .baf files"
+          (Bafparser.baf_file Baflexer.initial) in
+      AstdumpBcs.dump_script "baf" Astdump.Parse filename result ;
+      result
+  | _,_ ->
+      let result = parse_file true (String(filename,buffer)) "parsing .bcs files"
+          (Bcsparser.bcs_file Bcslexer.initial) in
+      AstdumpBcs.dump_script "bcs" Astdump.Parse filename result ;
+      result
 
 let handle_script_al buffer =
   let result = parse_file false (String("",buffer)) "parsing .baf files"
@@ -52,6 +63,14 @@ let handle_script_tl buffer =
 ;;
 
 Bcs.parse_al := handle_script_al
+
+(* Install the IDS AST dump hooks (bcs.ml compiles before the Astdump
+ * modules, so it only carries no-op hook references). *)
+let () =
+  Bcs.dump_ids_parse := (fun filename result ->
+    AstdumpBcs.dump_ids Astdump.Parse filename result) ;
+  Bcs.dump_ids_exec := (fun filename result ->
+    AstdumpBcs.dump_ids Astdump.Exec filename result)
 
 let check_file_exists file =
   if Modder.enabled "OVERWRITING_FILE" then begin
@@ -96,14 +115,17 @@ let handle_dlg_buffer game filename buffer =
   Buffer.contents out_buff
 
 let parse_d_buffer filename buffer =
-  parse_file true (String(filename,buffer)) "parsing .d files"
-    (Dparser.d_file Dlexer.initial)
+  let result = parse_file true (String(filename,buffer)) "parsing .d files"
+      (Dparser.d_file Dlexer.initial) in
+  AstdumpDlg.dump_d_actions Astdump.Parse filename result ;
+  result
 
 let handle_d_buffer game filename buffer =
   try
     let result = parse_d_buffer filename buffer in
     (match result with
     | [Dc.Create(dlg) as act] ->
+        AstdumpDlg.dump_d_actions Astdump.Exec filename [act] ;
         Dc.dc game [(filename,act)] ;
         let out_buff = Buffer.create (1024 * 32) in
         Dlg.save_dlg dlg out_buff ;
@@ -120,6 +142,7 @@ let handle_tp2_filename_caching filename can_cache =
   else
     let res = Tparser.parse_tp2_file (File filename) in
     res.Tp.tp_filename <- filename ;
+    AstdumpTp.dump_tp_file Astdump.Parse filename res ;
     if can_cache then
       Hashtbl.add tp2_cache filename res ;
     res
@@ -128,15 +151,20 @@ let handle_tp2_filename filename =
   handle_tp2_filename_caching filename false
 
 let handle_tph_filename filename =
-  Tparser.parse_tpa_file (File filename)
+  let res = Tparser.parse_tpa_file (File filename) in
+  AstdumpTp.dump_tp_actions "tpa" Astdump.Parse filename res ;
+  res
 
 let handle_tpp_filename filename =
-  Tparser.parse_tpp_file (File filename)
+  let res = Tparser.parse_tpp_file (File filename) in
+  AstdumpTp.dump_tp_patches Astdump.Parse filename res ;
+  res
 
 let get_tra_list_filename filename =
   if file_exists filename || Hashtbl.mem inlined_files filename then begin
       let result = parse_file true (File filename) "parsing .tra files"
                      (Dparser.tra_file Dlexer.initial) in
+      AstdumpDlg.dump_tra Astdump.Parse filename result ;
       Dc.notChanged := false ;
       log_or_print "[%s] has %d translation strings\n" filename
         (List.length result) ;
@@ -151,7 +179,9 @@ let handle_tra_filename filename =
   let result = get_tra_list_filename filename in
   (match result with
    | [] -> ()
-   | tra -> Stats.time "adding translation strings" Dc.add_trans_strings tra)
+   | tra ->
+       AstdumpDlg.dump_tra Astdump.Exec filename tra ;
+       Stats.time "adding translation strings" Dc.add_trans_strings tra)
 
 let resolve_tra_paths_and_load our_lang tra_l =
 (* Resolve %s in the tra path to the directory of the current language,
@@ -171,6 +201,7 @@ let handle_d_filename filename =
   try
     let result = parse_file true (File filename) "parsing .d files"
         (Dparser.d_file Dlexer.initial) in
+    AstdumpDlg.dump_d_actions Astdump.Parse filename result ;
     let result = List.map (fun a -> (filename,a)) result in
     Dc.d_action_list := result @ !Dc.d_action_list
   with e ->
@@ -210,6 +241,16 @@ Dlg.reprint_trigger := (fun s ->
 let emit_dlg_files game output_dir =
   if (!Dc.d_action_list <> []) then begin
     (try
+      (* Dump each source file's actions right before they are executed
+       * (rewrites happen inside Dc.dc).  Consecutive same-file entries
+       * are grouped, preserving the exact action order. *)
+      if Astdump.enabled () then
+        List.iter (fun (filename, acts) ->
+          AstdumpDlg.dump_d_actions Astdump.Exec filename acts)
+          (List.rev (List.fold_left (fun acc (f, a) ->
+             match acc with
+             | (g, l) :: rest when g = f -> (g, a :: l) :: rest
+             | _ -> (f, [a]) :: acc) [] !Dc.d_action_list)) ;
       Stats.time "process .D files" (Dc.dc game) !Dc.d_action_list ;
     with e ->
       Dc.clear_state () ;

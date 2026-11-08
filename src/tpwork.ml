@@ -654,6 +654,9 @@ let rollback_component game tp this_tp2_filename strset_backup_filename
 
 let rec handle_tp game this_tp2_filename tp =
 
+  (* AST dump: right before the TP2 executor walks the file. *)
+  AstdumpTp.dump_tp_file Astdump.Exec this_tp2_filename tp ;
+
   ignore (init_tp_state ()) ;
   
   if !Tpstate.safe_exit && !Tp.force_uninstall_these <> [] then failwith "--safe-exit and --force-uninstall-* are not compatible";
