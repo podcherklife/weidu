@@ -3,19 +3,19 @@
    Records the filesystem operations (reads, writes, deletes, renames) and
    external command executions of a run as JSONL events, so they can be
    compared against a reimplementation.  Companion to the AST dumping of
-   Astdump (--dump-ast), which observes the parse/execute pipeline; see
+   Astdump (--trace ast), which observes the parse/execute pipeline; see
    doc/trace/execution/README.md for the event schema and the list of
    instrumented (and excluded) sites.
 
-   This module is purely additive instrumentation: it is inactive unless the
-   --trace flag supplies a path, event failures disable the trace instead of
-   aborting the run, and no traced operation is ever modified.
+   This module is purely additive instrumentation: it is inactive unless
+   tracing is enabled by --trace, event failures disable the trace instead
+   of aborting the run, and no traced operation is ever modified.
 
    It deliberately has no project dependencies.  It must be usable from the
    low-level filesystem layer (Case_ins) as well as from Util/Load.  It
    therefore uses raw OCaml I/O for its own output channel and must never be
    routed through Util.open_for_writing or Case_ins.perv_open_out, which
-   keeps the trace file outside the traced operations. *)
+   keeps the trace output outside the traced operations. *)
 
 type value =
   | VString of string
@@ -28,6 +28,8 @@ type value =
 
 let enabled = ref false
 let channel = ref (None : out_channel option)
+(* Whether the channel is ours to close (never true for stdout). *)
+let owns_channel = ref false
 let next_seq = ref 0
 let trace_path = ref ""
 let suppress_file_read_count = ref 0
@@ -85,7 +87,7 @@ let emit event fields =
         with e ->
           enabled := false ;
           channel := None ;
-          (try close_out ch with _ -> ()) ;
+          if !owns_channel then (try close_out ch with _ -> ()) ;
           prerr_endline
             ("WARNING: filesystem trace disabled: " ^ Printexc.to_string e))
 
@@ -96,30 +98,45 @@ let close () =
     | None -> ()
     | Some ch ->
         (try flush ch with _ -> ()) ;
-        (try close_out ch with _ -> ()) ;
+        if !owns_channel then (try close_out ch with _ -> ()) ;
         channel := None ;
         enabled := false
   end
 
-let init path =
+(* Where JSONL events go: a file (truncated per run) or stdout. *)
+type sink =
+  | File of string
+  | Stdout
+
+let init sink =
   if !enabled then close () ;
-  trace_path := path ;
-  (* Mirror Astdump.set_dump_dir: create the parent directory if missing
-   * (single level, failures ignored -- the open below reports them). *)
-  (try
-    let dir = Filename.dirname path in
-    if dir <> "." && dir <> "" && not (Sys.file_exists dir) then
-      Unix.mkdir dir 0o777
-  with _ -> ()) ;
-  try
-    let ch = open_out_bin path in
-    channel := Some ch ;
-    enabled := true ;
-    at_exit close
-  with e ->
-    prerr_endline
-      ("WARNING: unable to open trace file [" ^ path ^ "]: " ^
-       Printexc.to_string e)
+  match sink with
+  | Stdout ->
+      set_binary_mode_out stdout true ;
+      trace_path := "<stdout>" ;
+      channel := Some stdout ;
+      owns_channel := false ;
+      enabled := true ;
+      at_exit close
+  | File path ->
+      trace_path := path ;
+      (* Mirror Astdump.set_dump_dir: create the parent directory if missing
+       * (single level, failures ignored -- the open below reports them). *)
+      (try
+        let dir = Filename.dirname path in
+        if dir <> "." && dir <> "" && not (Sys.file_exists dir) then
+          Unix.mkdir dir 0o777
+      with _ -> ()) ;
+      try
+        let ch = open_out_bin path in
+        channel := Some ch ;
+        owns_channel := true ;
+        enabled := true ;
+        at_exit close
+      with e ->
+        prerr_endline
+          ("WARNING: unable to open trace file [" ^ path ^ "]: " ^
+           Printexc.to_string e)
 
 let s v = VString v
 let i v = VInt v

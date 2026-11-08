@@ -1392,7 +1392,12 @@ let main () =
   let make_tlk = ref [] in
 
   let no_game = ref false in
-  let trace_path = ref None in
+  (* Tracing (--trace): whether the flag was passed, its optional qualifier
+   * (Some "fs" / Some "ast"; None = everything), and the optional
+   * --trace-directory sink. *)
+  let trace_given = ref false in
+  let trace_qualifier = ref None in
+  let trace_dir = ref None in
 
   let transitive = ref false in
   let two_pass = ref false in
@@ -1570,10 +1575,11 @@ let main () =
     "--change-log-rest",Myarg.Rest (Myarg.String (fun s -> change_log := s :: !change_log)), "\tgenerates a changelog for the given resource (cumulative)";
     "--noautoupdate", Myarg.Set no_auto_update,"\tdo not auto-update WeiDU setup files" ;
     "--no-auto-tp2", Myarg.Set no_auto_tp2, "\tdo not run setup-mymod.tp2 even if argv[0] is setup-mymod.exe" ;
-    "--dump-ast", Myarg.String Astdump.set_dump_dir,
-    "X\tdump the AST of every parsed file (stages: parse, exec) as typed S-expressions into directory X" ;
-    "--trace", Myarg.String (fun s -> trace_path := Some s),
-    "X\trecord the filesystem reads/writes/deletes/moves and external commands of the run as JSONL events into file X (relative paths are resolved against the TP2 directory)" ;
+    "--trace", Myarg.OptionalString ((fun s -> s = "fs" || s = "ast"),
+      (fun q -> trace_given := true ; trace_qualifier := q)),
+    "X\ttrace this run to stdout: execution events (filesystem reads/writes/deletes/moves and external commands, as JSONL) and/or AST dumps of every parsed file (typed S-expressions). X optionally limits tracing to 'fs' (events only) or 'ast' (dumps only); without X everything is traced" ;
+    "--trace-directory", Myarg.String (fun s -> trace_dir := Some s),
+    "X\twrite the tracing output (see --trace) into directory X instead of stdout: events go to X/execution.log, AST dumps to X/ast-dumps/; X is created if missing (relative X is resolved against the current directory); requires --trace" ;
     "--noselfupdatemsg", Myarg.Clear Autoupdate.self_update_message,"\tdo not print any self-updating messages" ;
     "--update-all", Myarg.Set auto_update_all,"\tauto-update all WeiDU setup files";
     "--args", Myarg.String (fun s -> Var.set_string ("argv[" ^ (string_of_int !counter) ^ "]") s; incr counter),
@@ -1783,32 +1789,38 @@ let main () =
   end else
     test_output_tlk_p := false ;
 
-  let trace_mod_dir () =
-    match !tp_list with
-    | tp2 :: _ ->
-        let dir = Case_ins.filename_dirname tp2 in
-        if dir = "" then "." else dir
-    | [] -> "."
-  in
-  let trace_file =
-    match !trace_path with
-    | None -> None
-    | Some path ->
-        Some (if Filename.is_relative path then
-          Filename.concat (trace_mod_dir ()) path
-        else path)
-  in
-  (match trace_file with
-  | None -> ()
-  | Some trace_file ->
-      Trace.init trace_file ;
-      Trace.run_start
-        (* Plain [Version.version], matching the weidu-version field of the
-           AST dumps (--dump-ast), so the two trace streams can be correlated
-           across builds; the binary itself is visible in argv. *)
-        ~version:Version.version
-        ~argv:(Array.to_list Sys.argv)
-        ~cwd:(Sys.getcwd ())) ;
+  (* Tracing setup (--trace / --trace-directory).  A relative trace
+     directory resolves against the current working directory. *)
+  (match !trace_dir, !trace_given with
+  | Some _, false ->
+      log_and_print "Error: --trace-directory requires --trace.\n\n" ;
+      give_help ()
+  | _ -> ()) ;
+  let trace_events = !trace_given && !trace_qualifier <> Some "ast" in
+  let trace_ast = !trace_given && !trace_qualifier <> Some "fs" in
+  (match !trace_dir with
+  | Some dir when trace_events || trace_ast ->
+      (* Best-effort single-level creation of the trace directory,
+         mirroring Trace.init's handling of the execution.log parent. *)
+      (try if not (Sys.file_exists dir) then Unix.mkdir dir 0o777 with _ -> ())
+  | _ -> ()) ;
+  (match !trace_dir, trace_ast with
+  | Some dir, true -> Astdump.set_dump_dir (Filename.concat dir "ast-dumps")
+  | None, true -> Astdump.set_stdout ()
+  | _ -> ()) ;
+  if trace_events then begin
+    Trace.init
+      (match !trace_dir with
+      | Some dir -> Trace.File (Filename.concat dir "execution.log")
+      | None -> Trace.Stdout) ;
+    Trace.run_start
+      (* Plain [Version.version], matching the weidu-version field of the
+         AST dumps (--trace ast), so the two trace streams can be correlated
+         across builds; the binary itself is visible in argv. *)
+      ~version:Version.version
+      ~argv:(Array.to_list Sys.argv)
+      ~cwd:(Sys.getcwd ())
+  end ;
 
   let game =
     if !no_game then

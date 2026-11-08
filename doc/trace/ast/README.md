@@ -1,15 +1,17 @@
-# AST Dumping (`--dump-ast`)
+# AST Dumping (`--trace ast`)
 
 WeiDU can dump the AST values produced by its parsers as **typed
 S-expressions**, so that they can be compared against a reimplementation
-that builds the same structures.  This is the first of the `doc/trace`
+that builds the same structures.  This is part of the `doc/trace`
 feature set: observability tooling for WeiDU's parse/execute pipeline.
 
 ## Usage
 
-Add `--dump-ast <directory>` to any normal WeiDU command line.  When
-the flag is given, every AST that gets produced by a parser during that
-run is written into `<directory>` (created if missing):
+Both `doc/trace` features share one flag: `--trace` enables **all**
+tracing, and an optional qualifier limits it — `ast` for the AST dumps
+documented here, `fs` for the execution events of `doc/trace/execution`.
+When dumping is enabled, every AST that gets produced by a parser during
+that run is written with two stages per source file:
 
 - `<source-file>.parse.sexp` — the value **right out of the parser**
   (the parser is treated as a pure producer; instrumentation sits at
@@ -22,7 +24,22 @@ Both stages are always written where both exist.  All dump calls are
 purely additive instrumentation: they only read the AST, and any dump
 failure is logged as a `WARNING:` and never alters execution.  Running
 the same command twice produces byte-identical dumps, so `diff -r`
-between two dump directories is meaningful.
+between two `ast-dumps/` directories is meaningful.
+
+Where the dumps go:
+
+- **By default they go to stdout.**  Each dump is a complete top-level
+  S-expression flushed as a unit, so multiple dumps are simply
+  concatenated; each is self-describing via its
+  `(weidu-version ...)`/`(grammar ...)`/`(stage ...)`/`(source ...)`
+  header fields.  Dumps interleave with WeiDU's normal output and with
+  the JSONL events of `--trace fs` on the same channel (leading `(` vs
+  leading `{` keeps them distinguishable).
+- **`--trace-directory <dir>`** redirects the tracing output to files:
+  dumps go into `<dir>/ast-dumps/` (created if missing) with the file
+  names described below, and events go to `<dir>/execution.log` (see
+  `doc/trace/execution`).  Passing `--trace-directory` without
+  `--trace` is an error.
 
 ### Common invocations
 
@@ -33,18 +50,22 @@ ones:
 # Check that a file parses, dumping whatever the parser produced.
 # Works for kinds D, BAF, TP2, TPA, TPP (parse dumps only: nothing is
 # executed by a parse check).
-weidu --nogame --dump-ast dumps --parse-check D mymod.d
-weidu --nogame --dump-ast dumps --parse-check BAF mymod.baf
+weidu --nogame --trace ast --parse-check D mymod.d
+weidu --nogame --trace ast --parse-check BAF mymod.baf
+
+# The same, with the dumps (and any events) written to a directory:
+weidu --nogame --trace --trace-directory traces --parse-check D mymod.d
+#   → traces/ast-dumps/*.parse.sexp
 
 # List components of a mod: parses the TP2 without installing.
-weidu --nogame --dump-ast dumps --list-components setup-mymod.tp2 0
+weidu --nogame --trace ast --list-components setup-mymod.tp2 0
 
 # Compile a .d to .dlg (or .baf to .bcs): parse + pre-execution dumps.
-weidu --nogame --dump-ast dumps --out outdir mymod.d
+weidu --nogame --trace ast --out outdir mymod.d
 
 # A full installation run: dumps for the TP2 itself (parse and exec),
 # every INCLUDE'd .tp2/.tpa library, .tra files, IDS tables, WeiDU.log.
-weidu --game <gamedir> --yes --dump-ast dumps setup-mymod.tp2
+weidu --game <gamedir> --yes --trace ast setup-mymod.tp2
 ```
 
 Notes:
@@ -58,9 +79,9 @@ Notes:
 - **No game required for parsing.** `--nogame` plus `--parse-check`
   (or `--list-components`) exercises the parsers without a game
   installation.
-- Passing `--dump-ast` twice just overwrites the directory setting;
-  dumps are written per parse, so re-parses overwrite their own files
-  with identical content.
+- Passing `--trace` twice just overwrites the qualifier setting; dumps
+  are written per parse, so re-parses overwrite their own files with
+  identical content.
 
 ### Dump file naming
 
@@ -211,9 +232,9 @@ same inputs:
 
 For future trace features (and reviewers), the pieces live in:
 
-- `src/astdump.ml` — writer core: configuration (the `--dump-ast`
-  flag state), deterministic file naming, the typed S-expression
-  emitters, and the top-level `write_dump` entry.
+- `src/astdump.ml` — writer core: configuration (the sink selected by
+  `--trace` / `--trace-directory`), deterministic file naming, the typed
+  S-expression emitters, and the top-level `write_dump` entry.
 - `src/astdumpBcs.ml`, `src/astdumpDlg.ml`, `src/astdumpTp.ml` —
   per-grammar serializers (BAF/BCS/IDS/Refactorbaf, Dlg/Dc/TRA/log,
   Tp respectively).

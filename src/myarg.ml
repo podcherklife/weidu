@@ -31,6 +31,10 @@ type spec =
   | Set of bool ref            (* Set the reference to true *)
   | Clear of bool ref          (* Set the reference to false *)
   | String of (string -> unit) (* Call the function with a string argument *)
+  | OptionalString of (string -> bool) * (string option -> unit)
+  (* Call the function with the next argument if there is one and the
+     predicate accepts it (use a closed set of accepted values, so an
+     unrelated following argument is not swallowed), otherwise with None. *)
   | TwoStrings of (string -> string -> unit)
   | Int of (int -> unit)       (* Call the function with an int argument *)
   | Float of (float -> unit)   (* Call the function with a float argument *)
@@ -154,6 +158,12 @@ let parse speclist anonfun errmsg =
               let arg = Sys.argv.(!current+1) in
               f arg;
               incr current;
+          | OptionalString (accept, f) when !current + 1 < l && accept Sys.argv.(!current+1) ->
+              let arg = Sys.argv.(!current+1) in
+              f (Some arg);
+              incr current;
+          | OptionalString (_, f) ->
+              f None;
           | TwoStrings f when !current + 2 < l ->
               let arg1 = Sys.argv.(!current+1) in
               incr current;

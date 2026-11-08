@@ -1,25 +1,34 @@
-# Execution tracing (`--trace`)
+# Execution tracing (`--trace fs`)
 
 WeiDU can record the filesystem operations and external commands of a run
 as **JSONL events**, so that they can be compared against a
 reimplementation that performs the same operations.  This complements the
-AST dumping of `doc/trace/ast` (`--dump-ast`): that feature observes the
+AST dumping of `doc/trace/ast` (`--trace ast`): that feature observes the
 parse/execute pipeline, this one observes what a run *does* — filesystem
 reads, writes, deletes, renames, and external command execution.  No
 variables, patch-expression outcomes, or interpreter state are recorded.
 
 ## Usage
 
-Add `--trace <path>` to any normal WeiDU command line.  When the flag is
-given, events are written as JSONL (one JSON object per line) to a single
-file:
+Both `doc/trace` features share one flag: `--trace` enables **all**
+tracing, and an optional qualifier limits it — `fs` for the execution
+events documented here, `ast` for the AST dumps of `doc/trace/ast`.  The
+events are written as JSONL (one JSON object per line):
 
-- A relative `<path>` is resolved against the directory containing the
-  TP2 being installed, so `--trace aug.jsonl` lands in the mod
-  directory.  Absolute paths are used as-is.  A missing single-level
-  parent directory is created (mirroring `--dump-ast`).
-- The trace file is created per run and truncated on re-init; passing
-  `--trace` twice just replaces the setting.
+- **By default the events go to stdout.**  Each line is flushed as it is
+  emitted, so event lines interleave with WeiDU's normal output and with
+  the S-expression dumps of `--trace ast` on the same channel; JSON
+  objects and S-expressions are trivially distinguishable (leading `{`
+  vs leading `(`).
+- **`--trace-directory <dir>`** redirects the tracing output to files:
+  events go to `<dir>/execution.log` and AST dumps to `<dir>/ast-dumps/`
+  (see `doc/trace/ast`).  `<dir>` is created if missing, and a relative
+  `<dir>` is resolved against the current working directory.  Passing
+  `--trace-directory` without `--trace` is an error.  Only the parts
+  enabled by the qualifier are written (e.g. `--trace fs
+  --trace-directory traces` creates `execution.log` but no `ast-dumps/`).
+- `execution.log` is created per run and truncated on re-init; passing
+  `--trace` (or `--trace-directory`) twice just replaces the setting.
 - The trace file itself is opened with raw OCaml I/O, not through
   `Util`/`Case_ins`, so it does not recursively trace itself.
 - All instrumentation is purely additive: trace failures only produce
@@ -28,16 +37,15 @@ file:
 
 ### Common invocations
 
-The flag composes with every existing WeiDU flow, and with `--dump-ast`;
-both flags can be given to observe the parse pipeline and the filesystem
-effects of the same run.
+The flag composes with every existing WeiDU flow:
 
 ```sh
-# Install with a trace (relative path lands in the mod directory):
-weidu --noautoupdate --use-lang en_US --force-install 0 --trace aug.jsonl setup-mymod.tp2
+# Install with a full trace to stdout:
+weidu --noautoupdate --use-lang en_US --force-install 0 --trace setup-mymod.tp2
 
-# Trace to an absolute location, alongside AST dumps:
-weidu --game <gamedir> --yes --dump-ast dumps --trace /tmp/aug.jsonl setup-mymod.tp2
+# Events only, written to a trace directory alongside the AST dumps:
+weidu --game <gamedir> --yes --trace fs --trace-directory traces setup-mymod.tp2
+#   → traces/execution.log (+ traces/ast-dumps/ if not qualified to fs)
 ```
 
 ### Assumption: case-insensitive filesystem
@@ -116,8 +124,9 @@ Instrumentation call sites are listed here; the pieces live in:
 - `Depends` — `trace` sits before `case_ins`/`util` so every layer can
   emit.
 
-1. **`--trace <path>`** — `src/main.ml`; resolves the path, initializes
-   the trace before game loading, and writes `run_start`.
+1. **`--trace [fs]` / `--trace-directory <dir>`** — `src/main.ml`;
+   configures the sink (stdout or `<dir>/execution.log`), initializes the
+   trace before game loading, and writes `run_start`.
 2. **`Util.load_file`** — `file_read` with path, byte count, source, and
    detail.
 3. **`Load.load_resource`** — `resource_read` with resource name and
@@ -250,7 +259,7 @@ without a traced event:
   (`linux.ini` and the ini files it reads), bypassing even `Case_ins`.
 - **`--extract-kits`** — `src/kit.ml` writes kit files with
   `Case_ins.perv_open_out_bin`.
-- **AST dump files** — `--dump-ast` output (`Astdump.write_dump`) is
+- **AST dump files** — `--trace ast` output (`Astdump.write_dump`) is
   instrumentation output like the trace file itself and is not traced.
 
 ### Reads not traced
@@ -319,8 +328,9 @@ The intended workflow: run the same install once traced and once
 untraced, verify the outputs are identical, then check trace coherence
 against the final tree:
 
-- Exclude the trace file itself (and any backup files outside the
-  fixture's expected output) from the comparison.
+- Exclude the trace output itself (`execution.log`, and any
+  `ast-dumps/` directory) and any backup files outside the fixture's
+  expected output from the comparison.
 - Normalize path case (`WeiDU.log` vs `weidu.log`) under the
   case-insensitive assumption.
 - Every write destination must exist in the final tree with the byte

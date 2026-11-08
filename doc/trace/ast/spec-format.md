@@ -1,7 +1,7 @@
 # The AST Spec Format (`ast-spec.sexp`)
 
 This document specifies `ast-spec.sexp`: a standalone, machine-readable
-catalog of the AST shapes that `--dump-ast` emits, together with the exact
+catalog of the AST shapes that `--trace ast` emits, together with the exact
 wire names those shapes carry in dumps.  It is written for consumers who
 **never read the WeiDU sources**: a reimplementation generates its AST
 framework from this file and uses the same file to interpret and validate

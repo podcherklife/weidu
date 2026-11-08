@@ -4,10 +4,10 @@
  * S-expressions, so they can be compared against a reimplementation.
  *
  * This module is purely additive instrumentation: it is inactive unless
- * the --dump-ast flag supplies a directory, all dumping is wrapped so
- * that failures only produce log warnings, and no dumped value is ever
- * modified.  See doc/trace/ast/README.md for the format specification and
- * the list of instrumented (and excluded) parse sites. *)
+ * --trace enables dumping (no qualifier or the ast qualifier), all dumping
+ * is wrapped so that failures only produce log warnings, and no dumped
+ * value is ever modified.  See doc/trace/ast/README.md for the format
+ * specification and the list of instrumented (and excluded) parse sites. *)
 
 open BatteriesInit
 open Hashtblinit
@@ -24,13 +24,22 @@ let stage_name = function
 
 (* -- configuration -- *)
 
-let dump_dir : string option ref = ref None
+(* Where dumps go: a directory (one file per dump) or stdout. *)
+type sink =
+  | Dir of string
+  | Stdout
 
-let enabled () = !dump_dir <> None
+let sink : sink option ref = ref None
+
+let enabled () = !sink <> None
 
 let set_dump_dir dir =
   (try Unix.mkdir dir 0o777 with _ -> ()) ;
-  dump_dir := Some dir
+  sink := Some (Dir dir)
+
+let set_stdout () =
+  set_binary_mode_out stdout true ;
+  sink := Some Stdout
 
 (* -- writer -- *)
 
@@ -236,9 +245,9 @@ let dump_filename source grammar stage =
  * node-valued serializer that emits its own line_start) inside the
  * enclosing (ast ...) node. *)
 let write_dump grammar stage source (payload : out -> unit) =
-  match !dump_dir with
+  match !sink with
   | None -> ()
-  | Some dir ->
+  | Some sink ->
       (try
         let o = create_out () in
         node_start o "ast-dump" ;
@@ -249,10 +258,19 @@ let write_dump grammar stage source (payload : out -> unit) =
         f_node o "ast" (fun o () -> payload o) () ;
         node_end o ;
         Buffer.add_char o.b '\n' ;
-        let path = dir ^ "/" ^ dump_filename source grammar stage in
-        let oc = Case_ins.perv_open_out path in
-        Buffer.output_buffer oc o.b ;
-        close_out oc
+        (match sink with
+         | Dir dir ->
+             let path = dir ^ "/" ^ dump_filename source grammar stage in
+             let oc = Case_ins.perv_open_out path in
+             Buffer.output_buffer oc o.b ;
+             close_out oc
+         | Stdout ->
+             (* Identity is in-band (weidu-version/grammar/stage/source
+              * fields).  Each dump is written whole and flushed, so dumps
+              * stay ordered against the JSONL events of the execution
+              * trace on the same channel. *)
+             output_string stdout (Buffer.contents o.b) ;
+             flush stdout)
       with e ->
         log_and_print "WARNING: AST dump of [%s] (%s/%s) failed: %s\n"
           source grammar (stage_name stage) (printexc_to_string e))

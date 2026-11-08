@@ -23,9 +23,10 @@ Copy this directory to `$GAME/trace-smoke`, then from `$GAME`:
   trace-smoke/trace-smoke.tp2
 ```
 
-For the traced run, add `--trace aug-smoke.jsonl`. Relative trace paths are
-resolved against the TP2 directory, so this lands in `trace-smoke/`; use an
-absolute path if you want the trace elsewhere. Reset the game to the `pristine`
+For the traced run, add `--trace --trace-directory trace-smoke/traces`. A
+relative trace directory is resolved against the current working directory
+(the game root), so this lands in `trace-smoke/traces/`; use an absolute path
+if you want the trace elsewhere. Reset the game to the `pristine`
 snapshot between the untraced and traced runs.
 
 Expected writes from this fixture:
@@ -37,9 +38,10 @@ Expected writes from this fixture:
 
 `BACKUP` may create `trace-smoke/backup/` and its bookkeeping files. Those
 bookkeeping files are not traced yet; exclude them when comparing the first
-fixture's expected writes against the trace. The trace file itself is also not
-part of the installed output; with `--trace aug-smoke.jsonl` it appears inside
-`trace-smoke/`, so exclude it from the comparison too.
+fixture's expected writes against the trace. The trace output itself is also
+not part of the installed output; with
+`--trace --trace-directory trace-smoke/traces` it appears inside
+`trace-smoke/traces/`, so exclude it from the comparison too.
 
 ## Smoke-run observations
 
