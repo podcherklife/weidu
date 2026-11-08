@@ -191,9 +191,37 @@ let non_empty_object o =
   o.o_unknown4 <> 0l ||
   o.o_name <> ""
 
-type how_to_save_bcs =
-  | Save_BCS_OC of out_channel
-  | Save_BCS_Buffer of Buffer.t
+type output_sink = {
+  output : string -> unit ;
+  close : unit -> unit ;
+}
+
+let channel_sink ?(kind = "bcs") ?(detail = "Bcs.save_bcs")
+    ?(backup = true) path out =
+  let closed = ref false in
+  {
+    output = (fun s -> output_string out s) ;
+    close = (fun () ->
+      if not !closed then begin
+        closed := true ;
+        close_out out ;
+        Trace.file_write ~kind ~detail ~backup path (file_size path)
+      end) ;
+  }
+
+let buffer_sink buffer =
+  let closed = ref false in
+  {
+    output = (fun s -> Buffer.add_string buffer s) ;
+    close = (fun () ->
+      if not !closed then begin
+        closed := true
+        (* Buffer sinks are silent for now. A buffer-completion event can be
+           emitted here later without changing the call sites. *)
+      end) ;
+  }
+
+let close_sink sink = sink.close ()
 
 let check_file_presence_trigger string script_style ids game first_or_second_string =
   if Modder.get "MISSING_RESREF" = Modder.None then ()
@@ -419,13 +447,10 @@ let check_ids_presence_action value file script_style ids game =
      end) ;
   ()
 
-let save_bcs game how bcs =
+let save_bcs game sink bcs =
   Stats.time "marshal BCS" (fun () ->
     let bcs_printf fmt =
-      let k result = match how with
-      | Save_BCS_OC(oc) -> output_string oc result
-      | Save_BCS_Buffer(b) -> Buffer.add_string b result
-      in
+      let k result = sink.output result in
       Printf.kprintf k fmt
     in
     let rec save_bcs game bcs =
@@ -923,12 +948,9 @@ let formal_arg_is_strref arg =
   let up = String.uppercase arg.arg_comment in
   up = "STRREF" || up = "STRINGREF"
 
-let print_script_text game how what comments strhandle =
+let print_script_text game sink what comments strhandle =
   let bcs_printf fmt =
-    let k result = match how with
-    | Save_BCS_OC(oc) -> output_string oc result
-    | Save_BCS_Buffer(b) -> Buffer.add_string b result
-    in
+    let k result = sink.output result in
     Printf.kprintf k fmt
   in
   let rec print_cr (tl,rl) =
@@ -1434,7 +1456,9 @@ let invalid_for_ict (al: string) which =
   | _ -> failwith "invalid_for_ict internal type mismatch") al in
   if mismatch = [] then "" else begin
     let buffer = Buffer.create 500 in
-    print_script_text (Load.the_game()) (Save_BCS_Buffer buffer) (BCS_Print_ActionList mismatch) false None;
+    let sink = buffer_sink buffer in
+    print_script_text (Load.the_game()) sink (BCS_Print_ActionList mismatch) false None;
+    close_sink sink ;
     let ans = Buffer.contents buffer in
     String.sub ans 0 (String.length ans - 1)
   end

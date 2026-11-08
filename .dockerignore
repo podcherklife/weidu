@@ -7,5 +7,6 @@
 .workflows
 .dir-locals.el
 Dockerfile
+build/
 obj/
 result

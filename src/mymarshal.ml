@@ -21,6 +21,7 @@ let write_unsetstr filename unsetstr =
   let outchan = Case_ins.perv_open_out_bin filename in
   Marshal.to_channel outchan unsetstr [];
   close_out outchan;
+  trace_bookkeeping_file filename "UNSETSTR";
   let outchan = Case_ins.perv_open_out (filename ^ ".TEXT") in
   List.iter (fun item ->
     let (idx,old,old_f) = item in
@@ -30,7 +31,8 @@ let write_unsetstr filename unsetstr =
     ;
   ) unsetstr;
   Printf.fprintf outchan "%!";
-  close_out outchan
+  close_out outchan;
+  trace_bookkeeping_file (filename ^ ".TEXT") "UNSETSTR.TEXT"
 ;;
 
 let read_tlkpath filename : string * string option =
@@ -43,7 +45,8 @@ let write_tlkpath filename dialog_path dialogf_path =
   (match dialogf_path with
   | None -> ignore (output_string out "\n")
   | Some p -> ignore (output_string out (" ~" ^ p ^ "~\n"))) ;
-  ignore (close_out out)
+  ignore (close_out out) ;
+  trace_bookkeeping_file filename "TLKPATH"
 
 let read_cli_vars filename : string list =
   try
@@ -62,12 +65,14 @@ let write_cli_vars filename cli_vars =
   let outchan = Case_ins.perv_open_out_bin filename in
   Marshal.to_channel outchan cli_vars [] ;
   close_out outchan ;
+  trace_bookkeeping_file filename "ARGS" ;
   let outchan = Case_ins.perv_open_out (filename ^ ".TEXT") in
   List.iter (fun s ->
     Printf.fprintf outchan "~~~~~%s~~~~~\n" s;
   ) cli_vars;
   Printf.fprintf outchan "%!";
   close_out outchan;
+  trace_bookkeeping_file (filename ^ ".TEXT") "ARGS.TEXT"
 ;;
 
 let read_readln filename : string list =
@@ -86,8 +91,10 @@ let write_readln filename writeln =
   let outchan = Case_ins.perv_open_out_bin filename in
   Marshal.to_channel outchan (List.map (fun s -> (Tp.PE_LiteralString "",s)) writeln) [] ;
   close_out outchan ;
+  trace_bookkeeping_file filename "READLN" ;
   let outchan = Case_ins.perv_open_out (filename ^ ".TEXT") in
   List.iter (fun b ->
     Printf.fprintf outchan "~~~~~%s~~~~~\n" b;
   ) writeln;
   Printf.fprintf outchan "%!";  close_out outchan ;
+  trace_bookkeeping_file (filename ^ ".TEXT") "READLN.TEXT"

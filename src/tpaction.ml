@@ -316,7 +316,11 @@ let rec process_action_real our_lang game this_tp2_filename tp a =
                   if do_backup then
                     backup_if_extant head ;
                   ignore (record_other_file_op head) ;
+                  let bytes =
+                    try Some (Case_ins.unix_stat64 head).Unix.LargeFile.st_size
+                    with _ -> None in
                   Case_ins.sys_remove head ;
+                  Trace.file_delete ~backup:do_backup ?bytes head ;
                   delete tail
                 end else if is_directory head then begin
                   let head = Str.global_replace (Str.regexp "/$") ""
@@ -334,7 +338,10 @@ let rec process_action_real our_lang game this_tp2_filename tp a =
           in
           delete (List.map (fun x ->
             Case_ins.fix_name (Var.get_string (eval_pe_str x))) filelist) ;
-          List.iter (fun dir -> Case_ins.unix_rmdir dir) !directories
+          List.iter (fun dir ->
+            Case_ins.unix_rmdir dir ;
+            Trace.file_delete ~kind:"directory" ~backup:false dir
+          ) !directories
 
       | TP_Move(filelist, do_backup) ->
           let move src dst =
@@ -362,7 +369,11 @@ let rec process_action_real our_lang game this_tp2_filename tp a =
                 log_or_print "Moving %s to %s\n" src dst;
                 if not (file_exists src) then
                   log_and_print "ERROR: cannot locate %s\n" src ;
+                let bytes =
+                  try Some (Case_ins.unix_stat64 src).Unix.LargeFile.st_size
+                  with _ -> None in
                 Case_ins.unix_rename src dst;
+                Trace.file_move ~backup:do_backup ?bytes src dst;
                 if do_backup then
                   (match !move_list_chn with
                   | Some(chn) -> output_string chn (src ^ log_line_separator ^ dst ^ "\n") ;
@@ -864,6 +875,9 @@ let rec process_action_real our_lang game this_tp2_filename tp a =
                               (* log_or_print "WARNING: chmod %s : %s\n" filename
                                  (printexc_to_string e) *)
                         end ;
+                        Trace.file_write ~kind:"copy" ~detail:src
+                          ~backup:make_a_backup dest
+                          (String.length result_buff) ;
                         if make_a_backup then
                           log_only "Copied [%s] to [%s]\n" src dest
                         else
@@ -2105,12 +2119,13 @@ let rec process_action_real our_lang game this_tp2_filename tp a =
                     ignore(String.index dest '/'); dest
                   with _ -> "override/" ^ dest) in
                 Stats.time "saving files" (fun () ->
-                  let out = open_for_writing destpath true in
-                  Bcs.save_bcs game (Bcs.Save_BCS_OC(out))
+                  let sink =
+                    Bcs.channel_sink destpath (open_for_writing destpath true) in
+                  Bcs.save_bcs game sink
                     (match a with
                       TP_Extend_Top(_,_,_,_,_,_) -> src_script @ dest_script
                     | _ -> dest_script @ src_script) ;
-                  close_out out ;
+                  Bcs.close_sink sink ;
                   begin (* handle read-only files! *)
                     (try
                       (* 511 = octal 0777 = a+rwx *)

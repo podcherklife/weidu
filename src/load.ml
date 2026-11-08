@@ -635,6 +635,9 @@ let load_resource for_what game override_allowed name ext =
   skip_next_load_error := false ;
   let ext_up = String.uppercase ext in
   let full = name ^ "." ^ ext in
+  let full_base = String.lowercase_ascii
+      (Case_ins.filename_basename full) in
+  let bif_info : (string * int * int * Biff.biff) option ref = ref None in
   let a,b =
     if (Case_ins.filename_is_implicit name) then begin
       try
@@ -643,13 +646,16 @@ let load_resource for_what game override_allowed name ext =
           List.iter (fun op ->
             let path = op ^ "/" ^ full in
             if file_exists path then
-              raise (FoundRes(load_file path, path)))
+              raise (FoundRes
+                       (Trace.without_file_read (fun () -> load_file path),
+                        path)))
             (if ext_up = "IDS" then game.ids_path_list else
             game.override_path_list) ;
 
         (* Now get it from the BIFs -- look it up in the KEY *)
         let bif_file, bif_index, tis_index, this_biff =
           find_in_key game name ext in
+        bif_info := Some (bif_file, bif_index, tis_index, this_biff) ;
         (* get it out of the BIF *)
         if ext_up = "TIS" then
           (Biff.extract_tis this_biff (tis_index-1))
@@ -666,7 +672,7 @@ let load_resource for_what game override_allowed name ext =
             "","(resource not found)"
           else begin
             if file_exists full then begin
-              (load_file full, full)
+              (Trace.without_file_read (fun () -> load_file full), full)
             end else begin
               if not skip_this_error then begin
                 log_and_print
@@ -681,8 +687,44 @@ let load_resource for_what game override_allowed name ext =
             end
           end
     end else
-      (load_file full), full
+      (Trace.without_file_read (fun () -> load_file full)), full
   in
+  let source =
+    if b = "(resource not found)" then "missing"
+    else if String.lowercase_ascii b = String.lowercase_ascii full then "direct"
+    else if String.lowercase_ascii (Case_ins.filename_basename b) = full_base then
+      "override"
+    else (match !bif_info with Some _ -> "bif" | None -> "unknown")
+  in
+  let bif_details = match !bif_info with
+  | Some (bif_file, bif_index, tis_index, this_biff) when source = "bif" ->
+      if ext_up = "TIS" then begin
+        let i = tis_index - 1 in
+        if i >= 0 && i < Array.length (this_biff.Biff.tilesets) then begin
+          let tile = this_biff.Biff.tilesets.(i) in
+          Some (bif_file, bif_index, tis_index,
+                tile.Biff.tis_offset,
+                tile.Biff.tis_number_of_tiles * tile.Biff.tis_size_of_one_tile,
+                this_biff.Biff.compressed)
+        end else None
+      end else if bif_index >= 0 &&
+                    bif_index < Array.length (this_biff.Biff.files) then begin
+        let file = this_biff.Biff.files.(bif_index) in
+        Some (bif_file, bif_index, tis_index,
+              file.Biff.res_offset,
+              file.Biff.res_size,
+              this_biff.Biff.compressed)
+      end else None
+  | _ -> None
+  in
+  (match bif_details with
+  | Some (bif_file, bif_index, tis_index, offset, container_size, compressed) ->
+      Trace.resource_read ~for_what ~name ~ext ~source ~path:b
+        ~bytes:(String.length a) ~bif:bif_file ~bif_index ~tis_index
+        ~offset ~container_size ~compressed ()
+  | None ->
+      Trace.resource_read ~for_what ~name ~ext ~source ~path:b
+        ~bytes:(String.length a) ()) ;
   if ((ext_up = "IDS" || ext_up = "2DA") && Xor.is_encrypted a) then
     (Xor.decrypt a,b)
   else

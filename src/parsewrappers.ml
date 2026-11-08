@@ -31,10 +31,11 @@ let compile_baf_filename game filename =
         (Bafparser.baf_file Baflexer.initial) in
     AstdumpBcs.dump_script "baf" Astdump.Parse filename script ;
     let name,ext = split_resref (Case_ins.filename_basename filename) in
-    let out = open_for_writing ("override/" ^ name ^ ".bcs") true in
+    let path = "override/" ^ name ^ ".bcs" in
+    let sink = Bcs.channel_sink path (open_for_writing path true) in
     AstdumpBcs.dump_script "baf" Astdump.Exec filename script ;
-    Bcs.save_bcs game (Bcs.Save_BCS_OC(out)) script ;
-    close_out out
+    Bcs.save_bcs game sink script ;
+    Bcs.close_sink sink
   with e ->
     (log_and_print "ERROR: error compiling [%s]: %s\n"
        filename (printexc_to_string e) ; raise e)
@@ -212,8 +213,10 @@ let reprint_d_action str pfun = begin
   let result = try
     let res = Bafparser.action_list Baflexer.initial lexbuf in
     let buff = Buffer.create (String.length str) in
-    Bcs.print_script_text (Load.the_game()) (Bcs.Save_BCS_Buffer(buff))
+    let sink = Bcs.buffer_sink buff in
+    Bcs.print_script_text (Load.the_game()) sink
       (Bcs.BCS_Print_ActionList(res)) false (Some(pfun)) ;
+    Bcs.close_sink sink ;
     Buffer.contents buff
   with e -> begin
     str
@@ -231,8 +234,10 @@ Dlg.reprint_trigger := (fun s ->
     let lexbuf = Lexing.from_string (String.copy s) in
     let res = Bafparser.trigger_list Baflexer.initial lexbuf in
     let buff = Buffer.create (String.length s) in
-    Bcs.print_script_text (Load.the_game()) (Bcs.Save_BCS_Buffer(buff))
+    let sink = Bcs.buffer_sink buff in
+    Bcs.print_script_text (Load.the_game()) sink
       (Bcs.BCS_Print_TriggerList(res,false)) false None ;
+    Bcs.close_sink sink ;
     Buffer.contents buff
   with _ -> s
   in
