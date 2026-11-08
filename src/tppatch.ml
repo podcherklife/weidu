@@ -257,7 +257,9 @@ let rec process_patch2_real process_action tp our_lang patch_filename game buff 
               let script = parse_file true (String (file, contents)) "parsing .baf files"
                 (Bafparser.baf_file Baflexer.initial) in
               let buff = Buffer.create 1024 in
-              Bcs.save_bcs game (Bcs.Save_BCS_Buffer(buff)) script ;
+              let sink = Bcs.buffer_sink buff in
+              Bcs.save_bcs game sink script ;
+              Bcs.close_sink sink ;
               Buffer.contents buff
             with e ->
               log_and_print "ERROR: error compiling [%s]: %s\n"
@@ -2306,7 +2308,9 @@ let rec process_patch2_real process_action tp our_lang patch_filename game buff 
         begin try
           let bcs = handle_script_buffer (patch_filename ^ ".BAF") buff in
           let out_buff = Buffer.create 40960 in
-          Bcs.save_bcs game (Bcs.Save_BCS_Buffer(out_buff)) bcs ;
+          let sink = Bcs.buffer_sink out_buff in
+          Bcs.save_bcs game sink bcs ;
+          Bcs.close_sink sink ;
           Dc.ok_to_resolve_strings_while_loading := old_ok;
           Buffer.contents out_buff
         with e ->
@@ -2326,8 +2330,10 @@ let rec process_patch2_real process_action tp our_lang patch_filename game buff 
         begin try
           let bcs = handle_script_buffer (patch_filename ^ ".BCS") buff in
           let out_buff = Buffer.create 40960 in
-          Bcs.print_script_text game (Bcs.Save_BCS_Buffer(out_buff))
+          let sink = Bcs.buffer_sink out_buff in
+          Bcs.print_script_text game sink
             (Bcs.BCS_Print_Script(bcs)) false None ;
+          Bcs.close_sink sink ;
           Buffer.contents out_buff
         with e ->
           if List.mem (String.uppercase patch_filename)

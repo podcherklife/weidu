@@ -367,8 +367,10 @@ let cmp_bcs_file bcmp_dest bcmp_src game =
       let decompile (buff,patch_filename) =
         let bcs = handle_script_buffer (patch_filename ^ ".BCS") buff in
         let out_buff = Buffer.create 40960 in
-        Bcs.print_script_text game (Bcs.Save_BCS_Buffer(out_buff))
+        let sink = Bcs.buffer_sink out_buff in
+        Bcs.print_script_text game sink
           (Bcs.BCS_Print_Script(bcs)) false None ;
+        Bcs.close_sink sink ;
         Buffer.contents out_buff
       in
       let src_buff,s = match bcmp_src with
@@ -1108,9 +1110,11 @@ let compile_baf baf_list game =
     try
       let script = handle_baf_filename str in
       let name,ext = split_resref (Case_ins.filename_basename str) in
-      let out = Case_ins.perv_open_out_bin (theout.dir ^ "/" ^ name ^ ".bcs") in
-      Bcs.save_bcs game (Bcs.Save_BCS_OC(out)) script ;
-      close_out out
+      let path = theout.dir ^ "/" ^ name ^ ".bcs" in
+      let sink = Bcs.channel_sink ~backup:false path
+          (Case_ins.perv_open_out_bin path) in
+      Bcs.save_bcs game sink script ;
+      Bcs.close_sink sink
     with e -> log_and_print "ERROR: problem loading [%s]: %s\n" str
         (printexc_to_string e) ; raise e
         ) baf_list ;
@@ -1266,14 +1270,16 @@ let decompile_bcs bcs_list game =
       let script = handle_script_buffer str buff in
       let base = Case_ins.filename_basename b in
       let out_name = theout.dir ^ "/" ^ base ^ ".baf" in
-      let out = Case_ins.perv_open_out out_name in
+      let sink = Bcs.channel_sink ~kind:"baf"
+          ~detail:"Bcs.print_script_text" ~backup:false out_name
+          (Case_ins.perv_open_out out_name) in
       (try
-        Bcs.print_script_text game (Bcs.Save_BCS_OC(out))
+        Bcs.print_script_text game sink
           (Bcs.BCS_Print_Script(script)) (!Dlg.comments) None ;
-        close_out out
+        Bcs.close_sink sink
       with e ->
         log_and_print "ERROR: problem printing script [%s]: %s\n" b
-          (printexc_to_string e) ; close_out out
+          (printexc_to_string e) ; Bcs.close_sink sink
           )
     with e -> log_and_print "ERROR: problem handling [%s]: %s\n" b
         (printexc_to_string e)
@@ -1381,6 +1387,7 @@ let main () =
   let make_tlk = ref [] in
 
   let no_game = ref false in
+  let trace_path = ref None in
 
   let transitive = ref false in
   let two_pass = ref false in
@@ -1501,7 +1508,7 @@ let main () =
   let forced_script_style = ref Load.NONE in
   let counter = ref 0 in
 
-  let usageMsg = Printf.sprintf "\t\tWeiDU (version %s: \"%s\")\n\nusage: WeiDU [options] BAF,BCS,D,DLG,TRA,TP,TP2-files" version comment in
+  let usageMsg = Printf.sprintf "\t\tWeiDU (version %s: \"%s\")\n\nusage: WeiDU [options] BAF,BCS,D,DLG,TRA,TP,TP2-files" (version ^ Version.suffix) comment in
   let argDescr = [
     "", Myarg.Unit (fun a -> a), "\nGeneral Input Options:\n" ;
 
@@ -1680,6 +1687,7 @@ let main () =
     "--autolog", Myarg.Unit (fun () -> init_log Version.version "WSETUP.DEBUG"), "\tlog output and details to WSETUP.DEBUG" ;
     "--logapp", Myarg.Set append_to_log,"\tappend to log instead of overwriting" ;
     "--log-extern", Myarg.Set log_extern,"\talso log output from commands invoked by WeiDU " ;
+    "--trace", Myarg.String (fun s -> trace_path := Some s), "X\twrite a JSONL filesystem/command trace to X (relative paths go to the TP2 directory)" ;
     "--debug-assign", Myarg.Set Var.debug_assign,"\tPrint out all values assigned to TP2 variables" ;
     "--debug-value", Myarg.Set Tp.debug_pe,"\tPrint out all value expressions" ;
     "--continue", Myarg.Set Tp.continue_on_error,"\tcontinue despite TP2 action errors" ;
@@ -1721,7 +1729,7 @@ let main () =
     | _ -> log_and_print "Unknown argument: [%s]\n\n" str ; give_help ()
   end in
 
-  log_and_print "[%s] WeiDU version %s\n" Sys.argv.(0) version ;
+  log_and_print "[%s] WeiDU version %s\n" Sys.argv.(0) (version ^ Version.suffix) ;
   let version_int = int_of_string Version.version in
   (match version_int mod 100 with
   | v when (v > 1) -> log_and_print "This version is a release candidate. \
@@ -1766,6 +1774,30 @@ let main () =
       end) ;
   end else
     test_output_tlk_p := false ;
+
+  let trace_mod_dir () =
+    match !tp_list with
+    | tp2 :: _ ->
+        let dir = Case_ins.filename_dirname tp2 in
+        if dir = "" then "." else dir
+    | [] -> "."
+  in
+  let trace_file =
+    match !trace_path with
+    | None -> None
+    | Some path ->
+        Some (if Filename.is_relative path then
+          Filename.concat (trace_mod_dir ()) path
+        else path)
+  in
+  (match trace_file with
+  | None -> ()
+  | Some trace_file ->
+      Trace.init trace_file ;
+      Trace.run_start
+        ~version:(version ^ Version.suffix)
+        ~argv:(Array.to_list Sys.argv)
+        ~cwd:(Sys.getcwd ())) ;
 
   let game =
     if !no_game then
@@ -2071,9 +2103,10 @@ let main () =
     decompile_bcs !bcs_list game ;
 
 
-  (match !backup_list_chn with
-    Some(c) -> close_out c ; backup_list_chn := None
-  | None -> () ) ;
+  close_bookkeeping_channel "UNINSTALL" backup_list_filename backup_list_chn ;
+  close_bookkeeping_channel "MAPPINGS" mappings_list_filename mappings_list_chn ;
+  close_bookkeeping_channel "MOVE" move_list_filename move_list_chn ;
+  close_bookkeeping_channel "OTHER" other_list_filename other_list_chn ;
   backup_dir := None ;
 
   (* make sure we add all those strings! *)

@@ -1,7 +1,7 @@
 
 # First stuff that makes the executable
 # to add later:
-WEIDU_BASE_MODULES := batList batteriesInit myhashtbl hashtblinit \
+WEIDU_BASE_MODULES := trace batList batteriesInit myhashtbl hashtblinit \
 	case_ins stats arch version parsing tph util modder var arch2 xor \
 	key cbif biff tlk load cre \
 	ids idsparser idslexer idslexer2 \

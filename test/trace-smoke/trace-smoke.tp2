@@ -1,0 +1,8 @@
+BACKUP ~trace-smoke/backup~
+AUTHOR ~aug-smoke~
+VERSION ~0.1~
+
+BEGIN ~Trace smoke~
+
+COPY ~trace-smoke/payload.txt~ ~trace-smoke/output.txt~
+COPY_EXISTING ~ANIMATE.IDS~ ~override/trace-smoke-animate.ids~

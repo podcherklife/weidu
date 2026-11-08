@@ -43,8 +43,10 @@ let verify_trigger_list s =
     let result = try
       let res = Bafparser.trigger_list Baflexer.initial lexbuf in
       let buff = Buffer.create (String.length s) in
-      Bcs.print_script_text (the_game()) (Bcs.Save_BCS_Buffer(buff))
+      let sink = Bcs.buffer_sink buff in
+      Bcs.print_script_text (the_game()) sink
         (Bcs.BCS_Print_TriggerList(res,true)) false None ;
+      Bcs.close_sink sink ;
       let result = Buffer.contents buff in
       result
     with e ->
@@ -68,8 +70,10 @@ let verify_action_list s =
     let result = try
       let res = Bafparser.action_list Baflexer.initial lexbuf in
       let buff = Buffer.create (String.length s) in
-      Bcs.print_script_text (the_game()) (Bcs.Save_BCS_Buffer(buff))
+      let sink = Bcs.buffer_sink buff in
+      Bcs.print_script_text (the_game()) sink
         (Bcs.BCS_Print_ActionList(res)) false None ;
+      Bcs.close_sink sink ;
       Buffer.contents buff
     with e ->
       log_and_print "WARNING: cannot verify action ~%s~: %s\n" s

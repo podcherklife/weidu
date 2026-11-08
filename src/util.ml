@@ -149,27 +149,42 @@ List.iter (fun (name,contents) ->
 let backup_ht = Hashtbl.create 511
 let backup_dir = ref None
 let backup_list_chn = ref None
+let backup_list_filename = ref None
 let mappings_list_chn = ref None
+let mappings_list_filename = ref None
 let move_list_chn = ref None
+let move_list_filename = ref None
 let other_list_chn = ref None
+let other_list_filename = ref None
+
+let trace_bookkeeping_file path detail =
+  try
+    let bytes =
+      Int64.to_int (Case_ins.unix_stat64 path).Unix.LargeFile.st_size in
+    Trace.file_write ~kind:"bookkeeping" ~detail path bytes
+  with _ -> ()
+
+let close_bookkeeping_channel detail filename_ref channel_ref =
+  (match !channel_ref with
+  | Some (chn) ->
+      close_out chn ;
+      channel_ref := None ;
+      (match !filename_ref with
+      | Some (filename) ->
+          trace_bookkeeping_file filename detail ;
+          filename_ref := None
+      | None -> ())
+  | None -> ())
 
 let set_backup_dir str i =
   let i = Printf.sprintf "%d" i in
   let backup_dir_name = Printf.sprintf "%s/%s" str i in
   recursive_mkdir backup_dir_name 511 ; (* 511 = octal 0777 = a+rwx *)
   backup_dir := Some(backup_dir_name) ;
-  (match !backup_list_chn with
-  | Some(c) -> close_out c
-  | None -> ()) ;
-  (match !mappings_list_chn with
-  | Some(c) -> close_out c
-  | None -> ()) ;
-  (match !move_list_chn with
-  | Some(c) -> close_out c
-  | None -> ()) ;
-  (match !other_list_chn with
-  | Some(c) -> close_out c
-  | None -> ()) ;
+  close_bookkeeping_channel "UNINSTALL" backup_list_filename backup_list_chn ;
+  close_bookkeeping_channel "MAPPINGS" mappings_list_filename mappings_list_chn ;
+  close_bookkeeping_channel "MOVE" move_list_filename move_list_chn ;
+  close_bookkeeping_channel "OTHER" other_list_filename other_list_chn ;
   let backup_filename = (backup_dir_name ^ "/UNINSTALL." ^ i) in
   let mappings_filename = (backup_dir_name ^ "/MAPPINGS." ^ i) in
   let move_filename = (backup_dir_name ^ "/MOVE." ^ i) in
@@ -177,9 +192,13 @@ let set_backup_dir str i =
   Hashtbl.clear backup_ht ;
   (try
     backup_list_chn := Some(Case_ins.perv_open_out_bin backup_filename) ;
+    backup_list_filename := Some backup_filename ;
     mappings_list_chn := Some(Case_ins.perv_open_out_bin mappings_filename) ;
+    mappings_list_filename := Some mappings_filename ;
     move_list_chn := Some(Case_ins.perv_open_out_bin move_filename) ;
+    move_list_filename := Some move_filename ;
     other_list_chn := Some(Case_ins.perv_open_out_bin other_filename) ;
+    other_list_filename := Some other_filename ;
   with e ->
     log_and_print "WARNING: unable to open [%s]: %s
       Will be unable to UNINSTALL later.\n"
@@ -504,6 +523,7 @@ and copy_large_file name out reason =
             name out ;
           raise e) ;
         log_only "%s copied to %s, %Ld bytes\n" name out size ;
+        Trace.file_copy ~reason name out size ;
       end) ()
   end
   with e ->
@@ -536,6 +556,7 @@ let load_file name =
         with e ->
           log_and_print "ERROR: load_file failed to close %s\n" name ;
           raise e) ;
+        Trace.file_read ~source:"direct" ~detail:"Util.load_file" name size ;
         log_only "[%s] loaded, %d bytes\n" name size ;
         buff) () ;
     end
@@ -579,6 +600,7 @@ let open_for_writing_internal backup filename binary =
     end ;
   let out_chn = (if binary then Case_ins.perv_open_out_bin else
   Case_ins.perv_open_out) filename in
+  Trace.file_write_open ~binary ~backup filename ;
   out_chn
 
 let open_for_writing = open_for_writing_internal true
@@ -618,29 +640,37 @@ let create_filter = function () ->
 
 let exec_command cmd exact =
   let cmd = if exact then cmd else Arch.slash_to_backslash cmd in
-  let ret = if !log_extern then
-    begin
-      (* copy stdout + stderr to logfile *)
-      let proc_stdout = Unix.open_process_in (cmd ^ " 2>&1") in
-      let s = Bytes.create 80 in
-      let filter = create_filter () in
-      begin
-        try
-          while true do
-            let read = input proc_stdout s 0 80 in
-            if read = 0 then raise End_of_file ;
-            let text = Bytes.sub s 0 read in
-            if not !be_silent then begin
-              output_string stdout text ;
-              flush stdout
-            end ;
-            log_only "%s" (filter text)
-          done
-        with _ -> ()
-      end ;
-      Unix.close_process_in proc_stdout
-    end else Unix.system cmd
-  in ret
+  Trace.external_exec_start ~command:cmd ~exact ;
+  let ret =
+    try
+      if !log_extern then begin
+        (* copy stdout + stderr to logfile *)
+        let proc_stdout = Unix.open_process_in (cmd ^ " 2>&1") in
+        let s = Bytes.create 80 in
+        let filter = create_filter () in
+        begin
+          try
+            while true do
+              let read = input proc_stdout s 0 80 in
+              if read = 0 then raise End_of_file ;
+              let text = Bytes.sub s 0 read in
+              if not !be_silent then begin
+                output_string stdout text ;
+                flush stdout
+              end ;
+              log_only "%s" (filter text)
+            done
+          with _ -> ()
+        end ;
+        Unix.close_process_in proc_stdout
+      end else
+        Unix.system cmd
+    with e ->
+      Trace.external_exec_failed ~command:cmd ~exact (Printexc.to_string e) ;
+      raise e
+  in
+  Trace.external_exec_end ~command:cmd ~exact ret ;
+  ret
 
 type execute_at_exit_type =
 | Command of string * bool
@@ -814,11 +844,14 @@ let parse_file verbose what sort_of_file parse_lex_fun =
           raise e)
       end else begin
         let inchan = Case_ins.perv_open_in filename in
+        let bytes = try in_channel_length inchan with _ -> 0 in
         (try
           begin
             let lexbuf : Lexing.lexbuf = lex_init filename inchan in
             let res = do_the_work filename lexbuf in
             close_in inchan ;
+            Trace.file_read ~source:"direct" ~detail:"Util.parse_file"
+              filename bytes ;
             res
           end
         with e ->
@@ -973,11 +1006,15 @@ let case_exact_tp_file tp_file =
 
 let read_lines file =
   let chan = Case_ins.perv_open_in file in
+  let bytes = try in_channel_length chan with _ -> 0 in
   let read chan = try Some (input_line chan) with End_of_file -> None in
   let rec loop list =
     match read chan with
     | Some line -> loop (line :: list)
-    | None -> close_in chan ; List.rev list in
+    | None ->
+        close_in chan ;
+        Trace.file_read ~source:"direct" ~detail:"Util.read_lines" file bytes ;
+        List.rev list in
   loop []
 
 let conf_filename game_path =
@@ -997,10 +1034,15 @@ let save_conf game_path table =
   (try
     if (Hashtbl.length table) > 0 then begin
       let chan = Case_ins.perv_open_out_bin (conf_filename game_path) in
+      let bytes = ref 0 in
       Hashtbl.iter (fun key value ->
-        ignore (output_string chan (Printf.sprintf "%s = %s\n" key value)))
+        let line = Printf.sprintf "%s = %s\n" key value in
+        bytes := !bytes + String.length line ;
+        ignore (output_string chan line))
         table ;
-      ignore (close_out chan)
+      ignore (close_out chan) ;
+      Trace.file_write ~kind:"config" ~detail:"Util.save_conf"
+        (conf_filename game_path) !bytes
     end
   with e ->
     log_and_print "ERROR: unable to save weidu.conf because: %s\n"

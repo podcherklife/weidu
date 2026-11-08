@@ -12,6 +12,9 @@
 open BatteriesInit
 open Hashtblinit
 let version = "25201"
+(* Kept separate from [version] so that the numeric version remains parseable
+   (main.ml uses [int_of_string Version.version] and the Makefile slices it). *)
+let suffix = "-augmented"
 
 (* Historical Comments: *)
 (* 7 let comment = "Underdark Army Knife" *)

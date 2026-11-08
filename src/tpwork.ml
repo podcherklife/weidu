@@ -623,15 +623,9 @@ let rollback_component game tp this_tp2_filename strset_backup_filename
   Dc.clear_state () ;
   record_strset_uninstall_info game strset_backup_filename ;
   record_tlk_path_info game tlkpath_backup_filename ;
-  (match !backup_list_chn with
-  | Some(chn) -> close_out chn ; backup_list_chn := None
-  | None -> ()) ;
-  (match !move_list_chn with
-  | Some(chn) -> close_out chn ; move_list_chn := None
-  | None -> ()) ;
-  (match !mappings_list_chn with
-  | Some(chn) -> close_out chn ; mappings_list_chn := None
-  | None -> ()) ;
+  close_bookkeeping_channel "UNINSTALL" backup_list_filename backup_list_chn ;
+  close_bookkeeping_channel "MOVE" move_list_filename move_list_chn ;
+  close_bookkeeping_channel "MAPPINGS" mappings_list_filename mappings_list_chn ;
   let lang_name =
     (try
       let l = List.nth tp.languages !our_lang_index in

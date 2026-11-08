@@ -381,7 +381,9 @@ let save_log game handle_tp2_filename get_tra_list_filename =
             get_tra_list_filename !the_log tp2_ht tra_ht true true in
   let out = Case_ins.perv_open_out log_name in
   output_string out s;
-  close_out out
+  close_out out;
+  Trace.file_write ~kind:"weidu_log" ~detail:"Tpstate.save_log"
+    log_name (String.length s)
 
 type default_action = TP_Install | TP_Uninstall | TP_Skip | TP_Ask
 
