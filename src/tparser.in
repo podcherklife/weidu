@@ -67,6 +67,13 @@ class tLexer =
 
 let realTables = ref None
 
+(* Which engine parse_tp2_file/parse_tpa_file/parse_tpp_file use.  Set from
+   main.ml via the --parser flag.  ModeFallback is the historical behavior:
+   run the old ocamlyacc parser first and retry with the Elkhound GLR parser
+   on any failure. *)
+type parser_mode = ModeFallback | ModeOld | ModeNew
+let parser_mode = ref ModeFallback
+
 let parse start lexbuf =
   let decomp_tables = match !realTables with
   | Some x -> x
@@ -102,11 +109,18 @@ let parse_tp2_file filename =
     | Tp.Start_From_Tp(a) -> a
     | _ -> failwith "Elkhound internal"
   in
-  try
-    parse_file false filename "Parsing TP2 files"
-      (Toldparser.tp_file Toldlexer.initial)
-  with _ ->
-    parse_file true filename "Parsing TP2 files" tp_file
+  match !parser_mode with
+  | ModeOld ->
+      parse_file true filename "Parsing TP2 files"
+        (Toldparser.tp_file Toldlexer.initial)
+  | ModeNew ->
+      parse_file true filename "Parsing TP2 files" tp_file
+  | ModeFallback ->
+      (try
+         parse_file false filename "Parsing TP2 files"
+           (Toldparser.tp_file Toldlexer.initial)
+       with _ ->
+         parse_file true filename "Parsing TP2 files" tp_file)
 
 let parse_tpa_file filename =
   let tpa_file lexbuf =
@@ -115,11 +129,18 @@ let parse_tpa_file filename =
     | Tp.Start_From_Tpa(a) -> a
     | _ -> failwith "Elkhound internal"
   in
-  try
-    parse_file false filename "Parsing TPA files"
-      (Toldparser.tph_file Toldlexer.initial)
-  with _ ->
-    parse_file true filename "Parsing TPA files" tpa_file
+  match !parser_mode with
+  | ModeOld ->
+      parse_file true filename "Parsing TPA files"
+        (Toldparser.tph_file Toldlexer.initial)
+  | ModeNew ->
+      parse_file true filename "Parsing TPA files" tpa_file
+  | ModeFallback ->
+      (try
+         parse_file false filename "Parsing TPA files"
+           (Toldparser.tph_file Toldlexer.initial)
+       with _ ->
+         parse_file true filename "Parsing TPA files" tpa_file)
 
 let parse_tpp_file filename =
   let tpp_file lexbuf =
@@ -128,8 +149,15 @@ let parse_tpp_file filename =
     | Tp.Start_From_Tpp(a) -> a
     | _ -> failwith "Elkhound internal"
   in
-  try
-    parse_file false filename "Parsing TPP files"
-      (Toldparser.tpp_file Toldlexer.initial)
-  with _ ->
-    parse_file true filename "Parsing TPP files" tpp_file
+  match !parser_mode with
+  | ModeOld ->
+      parse_file true filename "Parsing TPP files"
+        (Toldparser.tpp_file Toldlexer.initial)
+  | ModeNew ->
+      parse_file true filename "Parsing TPP files" tpp_file
+  | ModeFallback ->
+      (try
+         parse_file false filename "Parsing TPP files"
+           (Toldparser.tpp_file Toldlexer.initial)
+       with _ ->
+         parse_file true filename "Parsing TPP files" tpp_file)

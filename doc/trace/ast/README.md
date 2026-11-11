@@ -40,6 +40,13 @@ Where the dumps go:
   names described below, and events go to `<dir>/execution.log` (see
   `doc/trace/execution`).  Passing `--trace-directory` without
   `--trace` is an error.
+- **`--parser <policy>` is required with `--trace`** (`fallback`, `old`
+  or `new`).  The policy decides which engine parses TP2/TPA/TPP files
+  (see the "TP2 dual parsers" flow note below), so stating it makes the
+  traced output self-explanatory: without it, a fallback run could
+  produce dumps from either engine.  D and BAF/BCS parsing has a single
+  parser and is unaffected by the policy, but the flag is still
+  required so every traced invocation states its parser policy.
 
 ### Common invocations
 
@@ -50,22 +57,28 @@ ones:
 # Check that a file parses, dumping whatever the parser produced.
 # Works for kinds D, BAF, TP2, TPA, TPP (parse dumps only: nothing is
 # executed by a parse check).
-weidu --nogame --trace ast --parse-check D mymod.d
-weidu --nogame --trace ast --parse-check BAF mymod.baf
+weidu --nogame --trace ast --parser fallback --parse-check D mymod.d
+weidu --nogame --trace ast --parser fallback --parse-check BAF mymod.baf
 
 # The same, with the dumps (and any events) written to a directory:
-weidu --nogame --trace --trace-directory traces --parse-check D mymod.d
+weidu --nogame --trace --parser fallback --trace-directory traces --parse-check D mymod.d
 #   → traces/ast-dumps/*.parse.sexp
 
 # List components of a mod: parses the TP2 without installing.
-weidu --nogame --trace ast --list-components setup-mymod.tp2 0
+weidu --nogame --trace ast --parser fallback --list-components setup-mymod.tp2 0
 
 # Compile a .d to .dlg (or .baf to .bcs): parse + pre-execution dumps.
-weidu --nogame --trace ast --out outdir mymod.d
+weidu --nogame --trace ast --parser fallback --out outdir mymod.d
 
 # A full installation run: dumps for the TP2 itself (parse and exec),
 # every INCLUDE'd .tp2/.tpa library, .tra files, IDS tables, WeiDU.log.
-weidu --game <gamedir> --yes --trace ast setup-mymod.tp2
+weidu --game <gamedir> --yes --trace ast --parser fallback setup-mymod.tp2
+
+# Oracle check: parse the same file under each TP2/TPA/TPP engine and
+# diff the dumps (D/BAF dumps are engine-independent):
+weidu --nogame --trace ast --parser old --trace-directory dumps-old --parse-check TP2 setup-mymod.tp2
+weidu --nogame --trace ast --parser new --trace-directory dumps-new --parse-check TP2 setup-mymod.tp2
+#   → diff -r dumps-old/ast-dumps dumps-new/ast-dumps
 ```
 
 Notes:
@@ -172,7 +185,10 @@ Flow notes:
 - **TP2 dual parsers.** A TP2 file is first offered to the ocamlyacc
   parser (`Toldparser`) and, if that fails, to the Elkhound GLR parser
   (`Trealparser`).  Both produce the same `Tp.tp_file` type; the dump
-  reflects whichever succeeded.
+  reflects whichever succeeded.  `--parser old` / `--parser new` pin the
+  engine (and apply to TPA/TPP parsing too), making the producing parser
+  deterministic — running the same file under each mode and diffing the
+  parse dumps is the oracle check for parser equivalence.
 - **TP2 parse vs. exec.** The top-level `Tp.tp_file` is not rewritten
   between parse and `Tpwork.handle_tp`, so its two dumps are expected
   to be byte-identical apart from the `stage` line — this is a useful

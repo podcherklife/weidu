@@ -1398,6 +1398,9 @@ let main () =
   let trace_given = ref false in
   let trace_qualifier = ref None in
   let trace_dir = ref None in
+  (* Whether --parser was passed explicitly; --trace requires it so the
+     parser behind the traced output is obvious from the invocation. *)
+  let parser_given = ref false in
 
   let transitive = ref false in
   let two_pass = ref false in
@@ -1577,7 +1580,7 @@ let main () =
     "--no-auto-tp2", Myarg.Set no_auto_tp2, "\tdo not run setup-mymod.tp2 even if argv[0] is setup-mymod.exe" ;
     "--trace", Myarg.OptionalString ((fun s -> s = "fs" || s = "ast"),
       (fun q -> trace_given := true ; trace_qualifier := q)),
-    "X\ttrace this run to stdout: execution events (filesystem reads/writes/deletes/moves and external commands, as JSONL) and/or AST dumps of every parsed file (typed S-expressions). X optionally limits tracing to 'fs' (events only) or 'ast' (dumps only); without X everything is traced" ;
+    "X\ttrace this run to stdout: execution events (filesystem reads/writes/deletes/moves and external commands, as JSONL) and/or AST dumps of every parsed file (typed S-expressions). X optionally limits tracing to 'fs' (events only) or 'ast' (dumps only); without X everything is traced; requires --parser" ;
     "--trace-directory", Myarg.String (fun s -> trace_dir := Some s),
     "X\twrite the tracing output (see --trace) into directory X instead of stdout: events go to X/execution.log, AST dumps to X/ast-dumps/; X is created if missing (relative X is resolved against the current directory); requires --trace" ;
     "--noselfupdatemsg", Myarg.Clear Autoupdate.self_update_message,"\tdo not print any self-updating messages" ;
@@ -1611,6 +1614,14 @@ let main () =
       in forced_script_style := n),"X\tuse BCS/BAF style X (BG, PST, IWD1, IWD2)" ;
     "--min", Myarg.Int (fun i -> user_min := Some(i)), "X\tlower range for some commands (like --tlkcmp)" ;
     "--max", Myarg.Int (fun i -> user_max := Some(i)), "X\tupper range for some commands (like --string)" ;
+    "--parser", Myarg.String (fun s ->
+      let m = match String.uppercase_ascii s with
+        | "FALLBACK" -> Tparser.ModeFallback
+        | "OLD" -> Tparser.ModeOld
+        | "NEW" -> Tparser.ModeNew
+        | _ -> raise (Myarg.Bad "option `--parser' expects 'fallback', 'old' or 'new'")
+      in Tparser.parser_mode := m ; parser_given := true),
+    "X\tselect the TP2/TPA/TPP parser engine: 'fallback' (default; run the old parser, retry with the new one on any error), 'old' (legacy ocamlyacc parser only) or 'new' (Elkhound GLR parser only); required when tracing (--trace)" ;
     "--parse-check", Myarg.TwoStrings (fun kind file ->
       parse_check_kind := kind; parse_check_file := file),
     "\tX Y parses file Y as file type X and returns 0 if the file was parsed without errors; X must be one of D, BAF, TP2, TPA or TPP" ;
@@ -1794,6 +1805,13 @@ let main () =
   (match !trace_dir, !trace_given with
   | Some _, false ->
       log_and_print "Error: --trace-directory requires --trace.\n\n" ;
+      give_help ()
+  | _ -> ()) ;
+  (match !trace_given, !parser_given with
+  | true, false ->
+      log_and_print
+        "Error: --trace requires --parser (fallback, old or new) so it is \
+         explicit which parser produced the traced output.\n\n" ;
       give_help ()
   | _ -> ()) ;
   let trace_events = !trace_given && !trace_qualifier <> Some "ast" in

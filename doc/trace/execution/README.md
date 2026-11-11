@@ -27,6 +27,11 @@ events are written as JSONL (one JSON object per line):
   `--trace-directory` without `--trace` is an error.  Only the parts
   enabled by the qualifier are written (e.g. `--trace fs
   --trace-directory traces` creates `execution.log` but no `ast-dumps/`).
+- **`--parser <policy>` is required with `--trace`** (`fallback`, `old`
+  or `new`).  The policy decides which engine parses TP2/TPA/TPP files,
+  and it changes the event stream: a `fallback` run may read a TP2 file
+  twice (one read per parse attempt) while `old`/`new` read it once, so
+  stating the policy keeps event streams reproducible.
 - `execution.log` is created per run and truncated on re-init; passing
   `--trace` (or `--trace-directory`) twice just replaces the setting.
 - The trace file itself is opened with raw OCaml I/O, not through
@@ -41,10 +46,10 @@ The flag composes with every existing WeiDU flow:
 
 ```sh
 # Install with a full trace to stdout:
-weidu --noautoupdate --use-lang en_US --force-install 0 --trace setup-mymod.tp2
+weidu --noautoupdate --use-lang en_US --force-install 0 --trace --parser fallback setup-mymod.tp2
 
 # Events only, written to a trace directory alongside the AST dumps:
-weidu --game <gamedir> --yes --trace fs --trace-directory traces setup-mymod.tp2
+weidu --game <gamedir> --yes --trace fs --parser fallback --trace-directory traces setup-mymod.tp2
 #   → traces/execution.log (+ traces/ast-dumps/ if not qualified to fs)
 ```
 

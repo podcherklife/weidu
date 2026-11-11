@@ -23,11 +23,14 @@ Copy this directory to `$GAME/trace-smoke`, then from `$GAME`:
   trace-smoke/trace-smoke.tp2
 ```
 
-For the traced run, add `--trace --trace-directory trace-smoke/traces`. A
-relative trace directory is resolved against the current working directory
-(the game root), so this lands in `trace-smoke/traces/`; use an absolute path
-if you want the trace elsewhere. Reset the game to the `pristine`
-snapshot between the untraced and traced runs.
+For the traced run, add `--trace --parser fallback --trace-directory
+trace-smoke/traces` (`--trace` requires `--parser`; `fallback` preserves
+the historical dual-parser behavior this fixture's event observations
+were recorded with). A relative trace directory is resolved against the
+current working directory (the game root), so this lands in
+`trace-smoke/traces/`; use an absolute path if you want the trace
+elsewhere. Reset the game to the `pristine` snapshot between the
+untraced and traced runs.
 
 Expected writes from this fixture:
 

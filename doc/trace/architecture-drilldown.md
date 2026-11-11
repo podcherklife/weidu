@@ -87,7 +87,9 @@ global context record (`Load.game`) used by every later phase.
    Elkhound GLR fallback (`trealparser`) on any exception — both build
    `Tp.tp_file` values directly, no intermediate parse tree
    (`src/tp.ml`: flags, languages, `module_list` of components; each
-   component's `mod_parts` is a `tp_action` list).  Memoized in
+   component's `mod_parts` is a `tp_action` list).  `--parser` pins the
+   engine: `fallback` (the default behavior just described), `old`
+   (ocamlyacc only) or `new` (GLR only).  Memoized in
    `tp2_cache`; consumed later by the `ID_OF_LABEL` patch expression and
    by uninstall re-parses.
 2. **PARSE WeiDU.log**: `Dparser.log_file` → `the_log` (tp2, lang,
