@@ -1,0 +1,99 @@
+# Bazel build of weidu-augmented (Linux).
+#
+# Coexists with the legacy opam/make workflows (main.yaml, docker.yaml,
+# release.yaml): GitHub Actions workflows trigger independently, so this file
+# neither triggers nor disables them.  This workflow is path-filtered so it
+# only runs when something that feeds the Bazel build changes.
+#
+# The build is self-contained: the OCaml toolchain is produced/fetched by the
+# repository rules in bazel/ocaml/repos.bzl from public upstream sources.
+# See MODULE.bazel and bazel/README.md.
+#
+# Windows job: pending the MSYS2-based Windows toolchain (see
+# bazel/ocaml/repos.bzl, ocaml_windows_toolchain_repo).
+
+name: bazel
+
+on:
+  push:
+    paths:
+      - ".bazelversion"
+      - ".bazelrc"
+      - "MODULE.bazel"
+      - "MODULE.bazel.lock"
+      - "BUILD.bazel"
+      - "bazel/**"
+      - "platforms/**"
+      - "src/**"
+      - "elkhound/**"
+      - "zlib/**"
+      - "xdiff/**"
+      - "glob/**"
+      - "fcase/**"
+      - "batteries-lite/**"
+      - "hashtbl-4.03.0/**"
+      - "scripts/**"
+      - "windows_resources/**"
+  pull_request:
+    paths:
+      - ".bazelversion"
+      - ".bazelrc"
+      - "MODULE.bazel"
+      - "MODULE.bazel.lock"
+      - "BUILD.bazel"
+      - "bazel/**"
+      - "platforms/**"
+      - "src/**"
+      - "elkhound/**"
+      - "zlib/**"
+      - "xdiff/**"
+      - "glob/**"
+      - "fcase/**"
+      - "batteries-lite/**"
+      - "hashtbl-4.03.0/**"
+      - "scripts/**"
+      - "windows_resources/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux:
+    name: Build (Linux x86_64, bazel)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@v0.19.2
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+          # Cache the built Linux OCaml toolchain repo, keyed on the repo
+          # rule inputs (OCaml version, cc wrapper flags, patches).
+          external-cache: |
+            ocaml_toolchain_linux: bazel/ocaml/repos.bzl
+          # Restore caches on PRs, but only write them from branch pushes.
+          cache-save: ${{ github.event_name != 'pull_request' }}
+
+      - name: Build (includes //:sanity check)
+        run: bazelisk build //...
+
+      - name: Collect binaries
+        run: |
+          BIN="$(bazelisk info bazel-bin)"
+          mkdir -p dist
+          cp "$BIN/weidu" "$BIN/weinstall" "$BIN/tolower" dist/
+          ls -la dist/
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: weidu-linux-x86_64
+          path: dist/
