@@ -15,6 +15,11 @@ It complements the two trace features of `doc/trace`:
   filesystem — this document explains which phase performs each kind of
   write and why some writes are deferred to the end of the run.
 
+The backup machinery this document points at repeatedly (per-component
+bookkeeping in Phase 4, restore in Phase 7, rollback after a failed
+component) is documented in depth in
+`doc/trace/backup-drilldown.md`.
+
 ## Notation
 
 - **PARSE** — text or binary → AST / in-memory structure.
@@ -163,7 +168,9 @@ functions/macros stored as patch-node bodies in `Tpstate.functions` /
 scope.  `%var%` substitution happens *at every string evaluation*
 (`Var.get_string_special`, regexp `%[^%]+%`) — the expression family
 has no separate parser; it is part of the TP2/TPA/TPP AST and is
-evaluated by `Tppe.eval_pe` (`src/tppe.ml`).
+evaluated by `Tppe.eval_pe` (`src/tppe.ml`).  The full variable
+model — substitution passes, scope semantics, and value lifetime —
+is documented in `doc/trace/variables-drilldown.md`.
 
 By family, with their data dependencies:
 
