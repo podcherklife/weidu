@@ -1,0 +1,11 @@
+# Bazel configuration for weidu-augmented.
+#
+# The build is self-contained: the OCaml toolchain (Linux) or the assembled
+# MSYS2 toolchain (Windows) is fetched/produced by repository rules declared
+# in MODULE.bazel. See bazel/README.md for details.
+
+# Show the commands behind our custom rules when things go wrong.
+common --announce_rc
+
+# Keep output readable.
+build --experimental_convenience_symlinks=ignore

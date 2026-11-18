@@ -1,0 +1,464 @@
+"""Build definitions for weidu-augmented.
+
+Mirrors the hand-rolled make build (Makefile + Depends + Configuration):
+
+  * WEIDU_MODULES  -> ocaml_module_chain(_MODULES) + ocaml_binary with the
+    exact link order from Depends (the chain gives each module the
+    interfaces of all earlier modules, a conservative superset of
+    ocamldep).
+  * weinstall/tolower secondary executables (Makefile PROJECT3/PROJECT4).
+  * Platform selection (Configuration): arch.ml/case_ins.ml/arch2.ml are
+    chosen with select() on the target platform instead of file copies.
+  * Codegen chain from Depends: make_tph/make_gr/make_tll/make_old_mll/
+    make_compr_parser run under the toolchain's OCaml interpreter, parser
+    tables come from elkhound, lexers/parsers from ocamllex/ocamlyacc.
+  * Windows extra: reg.c/createprocess_win32.c/glob_win32.c, -ladvapi32 and
+    the weidu_resources.rc version resource (windres).
+
+All module source files live in the root package (no BUILD files exist in
+src/, elkhound/, etc.), so labels are plain workspace-relative paths.
+"""
+
+load(
+    "//bazel/ocaml:defs.bzl",
+    "ocaml_binary",
+    "ocaml_c_module",
+    "ocaml_codegen",
+    "ocaml_elkhound",
+    "ocaml_module",
+    "ocaml_module_chain",
+    "ocaml_sanity_check",
+    "ocaml_windres",
+    "ocaml_write",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# arch2.ml content (Depends' echo rule): platform strings baked in.
+_ARCH2_TAIL = 'Var.set_string "WEIDU_VER" Version.version\nlet _ = associate_these ()\n'
+_ARCH2_CONTENT_UNIX = 'let associate_these a = Var.set_string "WEIDU_ARCH" "amd64" ; Var.set_string "WEIDU_OS" "unix"; ' + _ARCH2_TAIL
+_ARCH2_CONTENT_WIN = 'let associate_these a = Var.set_string "WEIDU_ARCH" "amd64" ; Var.set_string "WEIDU_OS" "win32"; ' + _ARCH2_TAIL
+_ARCH2_CONTENT_OSX = 'let associate_these a = Var.set_string "WEIDU_ARCH" "amd64" ; Var.set_string "WEIDU_OS" "osx"; ' + _ARCH2_TAIL
+
+# ---------------------------------------------------------------------------
+# Vendored C headers.  Every C stub is compiled with -I over these dirs,
+# mirroring the Makefile's `CAMLFLAGS += -I zlib -I xdiff`.
+# ---------------------------------------------------------------------------
+filegroup(
+    name = "c_hdrs",
+    srcs = [
+        "zlib/crc32.h",
+        "zlib/deflate.h",
+        "zlib/inffast.h",
+        "zlib/inffixed.h",
+        "zlib/inflate.h",
+        "zlib/inftrees.h",
+        "zlib/trees.h",
+        "zlib/zconf.h",
+        "zlib/zlib.h",
+        "zlib/zlibdefs.h",
+        "zlib/zutil.h",
+        "xdiff/xadler32.h",
+        "xdiff/xbdiff.h",
+        "xdiff/xdiff.h",
+        "xdiff/xdiffi.h",
+        "xdiff/xemit.h",
+        "xdiff/xinclude.h",
+        "xdiff/xmacros.h",
+        "xdiff/xmissing.h",
+        "xdiff/xprepare.h",
+        "xdiff/xtypes.h",
+        "xdiff/xutils.h",
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# C stubs.  Names follow the make PROJECT_CMODULES lists; per-platform
+# selection replicates Configuration's ARCH_C_FILES/GLOB/PROJECT_CMODULES.
+# ---------------------------------------------------------------------------
+ocaml_c_module(
+    name = "c_nix",
+    target_compatible_with = select({
+        "//platforms:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    src = "src/nix.c", hdrs = [":c_hdrs"])
+ocaml_c_module(
+    name = "c_fcase",
+    target_compatible_with = select({
+        "//platforms:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    src = "fcase/fcase.c", hdrs = [":c_hdrs"])
+ocaml_c_module(
+    name = "c_reg",
+    target_compatible_with = select({
+        "//platforms:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    src = "src/reg.c", hdrs = [":c_hdrs"])
+ocaml_c_module(
+    name = "c_createprocess_win32",
+    target_compatible_with = select({
+        "//platforms:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    src = "src/createprocess_win32.c", hdrs = [":c_hdrs"])
+ocaml_c_module(
+    name = "c_glob_unix",
+    target_compatible_with = select({
+        "//platforms:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    src = "glob/glob_unix.c", hdrs = [":c_hdrs"])
+ocaml_c_module(
+    name = "c_glob_win32",
+    target_compatible_with = select({
+        "//platforms:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    src = "glob/glob_win32.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_xdiff", src = "src/xdiff.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_zlib", src = "zlib/zlib.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_adler32", src = "zlib/adler32.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_inflate", src = "zlib/inflate.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_uncompr", src = "zlib/uncompr.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_inftrees", src = "zlib/inftrees.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_zutil", src = "zlib/zutil.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_inffast", src = "zlib/inffast.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_crc32", src = "zlib/crc32.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_compress", src = "zlib/compress.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_deflate", src = "zlib/deflate.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_trees", src = "zlib/trees.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_xemit", src = "xdiff/xemit.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_xpatchi", src = "xdiff/xpatchi.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_xutils", src = "xdiff/xutils.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_xdiffi", src = "xdiff/xdiffi.c", hdrs = [":c_hdrs"])
+ocaml_c_module(name = "c_xprepare", src = "xdiff/xprepare.c", hdrs = [":c_hdrs"])
+
+_C_ZLIB_FAMILY = [
+    ":c_zlib",
+    ":c_adler32",
+    ":c_inflate",
+    ":c_uncompr",
+    ":c_inftrees",
+    ":c_zutil",
+    ":c_inffast",
+    ":c_crc32",
+    ":c_compress",
+    ":c_deflate",
+    ":c_trees",
+]
+_C_XDIFF_FAMILY = [
+    ":c_xdiff",
+    ":c_xemit",
+    ":c_xpatchi",
+    ":c_xutils",
+    ":c_xdiffi",
+    ":c_xprepare",
+]
+_C_MODULES_WEIDU = select({
+    "//platforms:windows": [":c_reg", ":c_createprocess_win32", ":c_glob_win32"] +
+                           _C_ZLIB_FAMILY + _C_XDIFF_FAMILY,
+    "//conditions:default": [":c_nix", ":c_fcase", ":c_glob_unix"] +
+                            _C_ZLIB_FAMILY + _C_XDIFF_FAMILY,
+})
+_C_MODULES_WEINSTALL = select({
+    "//conditions:default": [":c_fcase"],
+    "//platforms:windows": [],
+    "//platforms:macos": [],
+})
+
+# ---------------------------------------------------------------------------
+# Codegen chain (Depends:26-55).  All scripts run under the toolchain's OCaml
+# interpreter with `str.cma unix.cma`, exactly as the make rules do.
+# ---------------------------------------------------------------------------
+ocaml_codegen(
+    name = "tph_gen",
+    script = "scripts/make_tph.ml",
+    script_rel = "scripts/make_tph.ml",
+    stage = {
+        "src/tph/define/add_spell.tpa": "src/tph/define/add_spell.tpa",
+        "src/tph/define/fl#add_journal_lua.tpa": "src/tph/define/fl#add_journal_lua.tpa",
+        "src/tph/define/fl#create.tpa": "src/tph/define/fl#create.tpa",
+        "src/tph/define/lc_fix_missile_ids.tpa": "src/tph/define/lc_fix_missile_ids.tpa",
+        "src/tph/define/tb#pretty_print.tpp": "src/tph/define/tb#pretty_print.tpp",
+        "src/tph/include/a7_pvrz.tpa": "src/tph/include/a7_pvrz.tpa",
+        "src/tph/include/cd_functions.tpa": "src/tph/include/cd_functions.tpa",
+        "src/tph/include/fj_are_struct.tpa": "src/tph/include/fj_are_struct.tpa",
+        "src/tph/include/fj_cre_validity.tpa": "src/tph/include/fj_cre_validity.tpa",
+        "src/tph/include/fl_functions.tpa": "src/tph/include/fl_functions.tpa",
+        "src/tph/include/g_functions.tpa": "src/tph/include/g_functions.tpa",
+        "src/tph/include/g_macros.tpa": "src/tph/include/g_macros.tpa",
+        "src/tph/include/get_unique_file_name.tpa": "src/tph/include/get_unique_file_name.tpa",
+        "src/tph/include/handle_audio.tpa": "src/tph/include/handle_audio.tpa",
+        "src/tph/include/handle_charsets.tpa": "src/tph/include/handle_charsets.tpa",
+        "src/tph/include/handle_tilesets.tpa": "src/tph/include/handle_tilesets.tpa",
+        "src/tph/include/res_of_spell_ids.tpa": "src/tph/include/res_of_spell_ids.tpa",
+        "src/tph/include/sc#addwmpare.tpa": "src/tph/include/sc#addwmpare.tpa",
+        "src/tph/include/star_of_filespec.tpa": "src/tph/include/star_of_filespec.tpa",
+        "src/tph/include/store_functions.tpa": "src/tph/include/store_functions.tpa",
+        "src/tph/include/tb#macros.tpa": "src/tph/include/tb#macros.tpa",
+        "src/tph/include/tb#tob_hacks.tpa": "src/tph/include/tb#tob_hacks.tpa",
+        "src/tph/include/worldmap_links.tpa": "src/tph/include/worldmap_links.tpa",
+    },
+    outs = ["tph.ml"],
+    staging_paths = ["src/tph.ml"],
+    interpreter_opts = ["-w", "p", "-unsafe-string"],
+)
+
+ocaml_codegen(
+    name = "trealparserin_gr_gen",
+    script = "scripts/make_gr.ml",
+    script_rel = "scripts/make_gr.ml",
+    stage = {
+        "src/aliases.in": "src/aliases.in",
+        "src/trealparserin.in": "src/trealparserin.in",
+    },
+    outs = ["trealparserin.gr"],
+    staging_paths = ["src/trealparserin.gr"],
+)
+
+ocaml_elkhound(
+    name = "trealparserin_gen",
+    gr = ":trealparserin.gr",
+    outs = [
+        "trealparserin.ml",
+        "trealparserin.mli",
+    ],
+)
+
+ocaml_codegen(
+    name = "trealparser_gen",
+    script = "scripts/make_compr_parser.ml",
+    script_rel = "scripts/make_compr_parser.ml",
+    stage = {
+        ":trealparserin.ml": "trealparserin.ml",
+    },
+    args = [
+        "trealparserin.ml",
+        "trealparser.ml",
+    ],
+    copy = {
+        ":trealparserin.mli": "trealparser.mli",
+    },
+    outs = [
+        "trealparser.ml",
+        "trealparser.mli",
+    ],
+    staging_paths = [
+        "trealparser.ml",
+        "trealparser.mli",
+    ],
+)
+
+ocaml_codegen(
+    name = "tlexer_mll_gen",
+    script = "scripts/make_tll.ml",
+    script_rel = "scripts/make_tll.ml",
+    stage = {
+        "src/tlexer.in": "src/tlexer.in",
+        ":trealparserin.gr": "src/trealparserin.gr",
+    },
+    outs = ["tlexer.mll"],
+    staging_paths = ["src/tlexer.mll"],
+)
+
+ocaml_codegen(
+    name = "toldlexer_mll_gen",
+    script = "scripts/make_old_mll.ml",
+    script_rel = "scripts/make_old_mll.ml",
+    stage = {
+        "src/toldlexer.in": "src/toldlexer.in",
+        ":trealparserin.gr": "src/trealparserin.gr",
+    },
+    outs = ["toldlexer.mll"],
+    staging_paths = ["src/toldlexer.mll"],
+)
+
+# Platform selection for arch.ml/case_ins.ml/arch2.ml (Configuration lines
+# 8-81 replaced by select()); arch2.ml bakes WEIDU_ARCH/WEIDU_OS strings.
+ocaml_write(
+    name = "arch2_gen",
+    out = "arch2.ml",
+    content = select({
+        "//platforms:windows": _ARCH2_CONTENT_WIN,
+        "//platforms:macos": _ARCH2_CONTENT_OSX,
+        "//conditions:default": _ARCH2_CONTENT_UNIX,
+    }),
+)
+
+ocaml_windres(
+    name = "weidu_resources_o",
+    out = "weidu_resources.o",
+    rc = "windows_resources/weidu_resources.rc",
+    target_compatible_with = ["@platforms//os:windows"],
+    version = "src/version.ml",
+)
+
+# ---------------------------------------------------------------------------
+# The WeiDU module chain, in the canonical Depends order.
+# ---------------------------------------------------------------------------
+_MODULES = [
+    {"name": "trace", "src": "src/trace.ml"},
+    {"name": "batList", "src": "batteries-lite/batList.ml", "interface": "batteries-lite/batList.mli"},
+    {"name": "batteriesInit", "src": "batteries-lite/batteriesInit.ml"},
+    {"name": "myhashtbl", "src": "hashtbl-4.03.0/myhashtbl.ml", "interface": "hashtbl-4.03.0/myhashtbl.mli"},
+    {"name": "hashtblinit", "src": "hashtbl-4.03.0/hashtblinit.ml"},
+    {"name": "case_ins", "src": select({
+        "//platforms:windows": "src/case_ins_win.ml",
+        "//platforms:macos": "src/case_ins_mac.ml",
+        "//conditions:default": "src/case_ins_linux.ml",
+    })},
+    {"name": "stats", "src": "src/stats.ml"},
+    {"name": "arch", "src": select({
+        "//platforms:windows": "src/arch_mingw.ml",
+        "//platforms:macos": "src/arch_osx.ml",
+        "//conditions:default": "src/arch_unix.ml",
+    })},
+    {"name": "version", "src": "src/version.ml"},
+    {"name": "parsing", "src": "src/parsing.ml"},
+    {"name": "tph", "src": ":tph.ml"},
+    {"name": "util", "src": "src/util.ml"},
+    {"name": "modder", "src": "src/modder.ml"},
+    {"name": "var", "src": "src/var.ml"},
+    {"name": "arch2", "src": ":arch2.ml"},
+    {"name": "xor", "src": "src/xor.ml"},
+    {"name": "key", "src": "src/key.ml"},
+    {"name": "cbif", "src": "src/cbif.ml"},
+    {"name": "biff", "src": "src/biff.ml"},
+    {"name": "tlk", "src": "src/tlk.ml"},
+    {"name": "load", "src": "src/load.ml"},
+    {"name": "cre", "src": "src/cre.ml"},
+    {"name": "ids", "src": "src/ids.ml"},
+    {"name": "idsparser", "src": "src/idsparser.mly"},
+    {"name": "idslexer", "src": "src/idslexer.mll"},
+    {"name": "idslexer2", "src": "src/idslexer2.mll"},
+    {"name": "bcs", "src": "src/bcs.ml"},
+    {"name": "bcsparser", "src": "src/bcsparser.mly"},
+    {"name": "bcslexer", "src": "src/bcslexer.mll"},
+    {"name": "dlg", "src": "src/dlg.ml"},
+    {"name": "dc", "src": "src/dc.ml"},
+    {"name": "refactorbaf", "src": "src/refactorbaf.ml"},
+    {"name": "refactorbafparser", "src": "src/refactorbafparser.mly"},
+    {"name": "refactorbaflexer", "src": "src/refactorbaflexer.mll"},
+    {"name": "refactordparser", "src": "src/refactordparser.mly"},
+    {"name": "refactordlexer", "src": "src/refactordlexer.mll"},
+    {"name": "bafparser", "src": "src/bafparser.mly"},
+    {"name": "baflexer", "src": "src/baflexer.mll"},
+    {"name": "myxdiff", "src": "src/myxdiff.ml"},
+    {"name": "diff", "src": "src/diff.ml"},
+    {"name": "sav", "src": "src/sav.ml"},
+    {"name": "mos", "src": "src/mos.ml"},
+    {"name": "tp", "src": "src/tp.ml"},
+    {"name": "dparser", "src": "src/dparser.mly"},
+    {"name": "dlexer", "src": "src/dlexer.mll"},
+    {"name": "sql", "src": "src/sql.ml"},
+    {"name": "json", "src": "src/json.ml"},
+    {"name": "astdump", "src": "src/astdump.ml"},
+    {"name": "astdumpBcs", "src": "src/astdumpBcs.ml"},
+    {"name": "astdumpDlg", "src": "src/astdumpDlg.ml"},
+    {"name": "astdumpTp", "src": "src/astdumpTp.ml"},
+    {"name": "smutil", "src": "elkhound/smutil.ml"},
+    {"name": "useract", "src": "elkhound/useract.ml"},
+    {"name": "lexerint", "src": "elkhound/lexerint.ml"},
+    {"name": "parsetables", "src": "elkhound/parsetables.ml"},
+    {"name": "arraystack", "src": "elkhound/arraystack.ml"},
+    {"name": "objpool", "src": "elkhound/objpool.ml"},
+    {"name": "glr", "src": "elkhound/glr.ml"},
+    {"name": "lrparse", "src": "elkhound/lrparse.ml"},
+    {"name": "automate", "src": "src/automate.ml"},
+    {"name": "kit", "src": "src/kit.ml"},
+    {"name": "tpstate", "src": "src/tpstate.ml"},
+    {"name": "tphelp", "src": "src/tphelp.ml"},
+    {"name": "trealparser", "src": ":trealparser.ml", "interface": ":trealparser.mli"},
+    {"name": "tlexer", "src": ":tlexer.mll"},
+    {"name": "toldparser", "src": "src/toldparser.mly"},
+    {"name": "toldlexer", "src": ":toldlexer.mll"},
+    {"name": "tparser", "src": "src/tparser.in"},
+    {"name": "parsewrappers", "src": "src/parsewrappers.ml"},
+    {"name": "mymarshal", "src": "src/mymarshal.ml"},
+    {"name": "tppe", "src": "src/tppe.ml"},
+    {"name": "tpuninstall", "src": "src/tpuninstall.ml"},
+    {"name": "tppatch", "src": "src/tppatch.ml"},
+    {"name": "tpaction", "src": "src/tpaction.ml"},
+    {"name": "tpwork", "src": "src/tpwork.ml"},
+    {"name": "changelog", "src": "src/changelog.ml"},
+    {"name": "licence", "src": "src/licence.ml"},
+    {"name": "myarg", "src": "src/myarg.ml"},
+    {"name": "autoupdate", "src": "src/autoupdate.ml"},
+    {"name": "main", "src": "src/main.ml"},
+]
+
+# Module targets shared by the secondary executables are declared exactly
+# once (by the weidu chain) and reused by label.
+ocaml_module_chain(_MODULES)
+_ALL_LABELS = [":" + m["name"] for m in _MODULES]
+
+ocaml_binary(
+    name = "weidu",
+    modules = _ALL_LABELS,
+    c_modules = _C_MODULES_WEIDU,
+    extra_linkopts = select({
+        "//platforms:windows": ["-cclib", "-ladvapi32"],
+        "//conditions:default": [],
+    }),
+    resources = select({
+        "//platforms:windows": [":weidu_resources_o"],
+        "//conditions:default": [],
+    }),
+)
+
+ocaml_module(
+    name = "weinstall_mod",
+    src = "src/weinstall.ml",
+    deps = _ALL_LABELS,
+)
+ocaml_binary(
+    name = "weinstall",
+    modules = [
+        ":batList",
+        ":batteriesInit",
+        ":case_ins",
+        ":weinstall_mod",
+    ],
+    c_modules = _C_MODULES_WEINSTALL,
+)
+
+ocaml_module(
+    name = "tolower_mod",
+    src = "src/tolower.ml",
+    deps = _ALL_LABELS,
+)
+ocaml_binary(
+    name = "tolower",
+    modules = [
+        ":batList",
+        ":batteriesInit",
+        ":tolower_mod",
+    ],
+)
+
+# Full sanity check: version banner, D -> DLG compile, DLG -> D round trip
+# and rejection of a known-bad file, all without an Infinity Engine game
+# (uses the upstream test/no-game fixture; see defs.bzl docstring).
+ocaml_sanity_check(
+    name = "sanity",
+    bad_file = "not-token.d",
+    binary = ":weidu",
+    good_file = "make-foozle.d",
+    roundtrip_expect = "Abracadabra",
+    stage = {
+        "test/bad-syntax/not-token.d": "not-token.d",
+        "test/no-game/make-foozle.d": "make-foozle.d",
+    },
+)
+
+filegroup(
+    name = "distribute_binaries",
+    srcs = [
+        ":weidu",
+        ":weinstall",
+        ":tolower",
+    ],
+)

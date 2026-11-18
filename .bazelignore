@@ -1,0 +1,8 @@
+# Legacy build outputs and content that is not part of the Bazel build.
+.git
+obj
+obj-tk
+build
+doc
+examples
+diffs

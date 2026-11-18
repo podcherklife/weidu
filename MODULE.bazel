@@ -1,0 +1,40 @@
+"""weidu-augmented: WeiDU fork with --trace/--dump-ast observability tooling.
+
+Consumable as a Bazel module by upstream projects:
+
+    bazel_dep(name = "weidu_augmented", version = "25201.0.0")
+    # plus, until this is published to the BCR:
+    git_override(
+        module_name = "weidu_augmented",
+        remote = "https://github.com/podcherklife/weidu.git",
+        commit = "<commit>",
+    )
+
+then reference //:weidu, //:weinstall, //:tolower (or build for the
+windows_x86_64 platform on a Windows host) — no local OCaml toolchain, opam
+or container runtime is required.  See bazel/README.md.
+"""
+
+module(
+    name = "weidu_augmented",
+    version = "25201.0.0",
+)
+
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# Linux: build OCaml 4.08.1 from upstream source on the host (gcc + make).
+ocaml_linux_toolchain_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "ocaml_linux_toolchain_repo")
+ocaml_linux_toolchain_repo(name = "ocaml_toolchain_linux")
+
+# Windows: assemble a self-contained toolchain from pinned MSYS2 packages.
+ocaml_windows_toolchain_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "ocaml_windows_toolchain_repo")
+ocaml_windows_toolchain_repo(name = "ocaml_toolchain_windows")
+
+# elkhound parser generator binaries (same release the Makefile/CI use).
+elkhound_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "elkhound_repo")
+elkhound_repo(name = "elkhound")
+
+register_toolchains(
+    "//bazel/ocaml:ocaml_linux",
+    "//bazel/ocaml:ocaml_windows",
+)

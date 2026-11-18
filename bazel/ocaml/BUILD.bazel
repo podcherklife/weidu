@@ -1,0 +1,67 @@
+"""OCaml toolchain registrations for weidu-augmented.
+
+Each toolchain is selected when exec and target platforms match: builds run
+natively on the host (Linux toolchain on Linux hosts, Windows toolchain on
+Windows hosts).  A future cross toolchain (Linux exec -> Windows target)
+can be added as a third toolchain without touching the rules.
+"""
+
+load("//bazel/ocaml:toolchain.bzl", "ocaml_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+toolchain_type(name = "toolchain_type")
+
+ocaml_toolchain(
+    name = "linux_toolchain_def",
+    bash = "@ocaml_toolchain_linux//:bash",
+    compiler = "@ocaml_toolchain_linux//:compiler",
+    elkhound = "@elkhound//:elkhound",
+    ocaml = "@ocaml_toolchain_linux//:ocaml",
+    ocamllex = "@ocaml_toolchain_linux//:ocamllex",
+    ocamlyacc = "@ocaml_toolchain_linux//:ocamlyacc",
+    tool_files = "@ocaml_toolchain_linux//:tool_files",
+    os = "linux",
+)
+
+toolchain(
+    name = "ocaml_linux",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":linux_toolchain_def",
+    toolchain_type = ":toolchain_type",
+)
+
+ocaml_toolchain(
+    name = "windows_toolchain_def",
+    target_compatible_with = ["@platforms//os:windows"],
+    bash = "@ocaml_toolchain_windows//:bash",
+    compiler = "@ocaml_toolchain_windows//:compiler",
+    elkhound = "@elkhound//:elkhound",
+    ocaml = "@ocaml_toolchain_windows//:ocaml",
+    ocamllex = "@ocaml_toolchain_windows//:ocamllex",
+    ocamlyacc = "@ocaml_toolchain_windows//:ocamlyacc",
+    tool_files = "@ocaml_toolchain_windows//:tool_files",
+    windres = "@ocaml_toolchain_windows//:windres",
+    os = "windows",
+)
+
+toolchain(
+    name = "ocaml_windows",
+    exec_compatible_with = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+    ],
+    target_compatible_with = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":windows_toolchain_def",
+    toolchain_type = ":toolchain_type",
+)
