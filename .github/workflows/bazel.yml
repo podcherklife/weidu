@@ -17,6 +17,8 @@ name: bazel
 on:
   push:
     paths:
+      # include this workflow file so edits to it itself re-trigger the build
+      - ".github/workflows/bazel.yml"
       - ".bazelversion"
       - ".bazelrc"
       - "MODULE.bazel"
@@ -36,6 +38,7 @@ on:
       - "windows_resources/**"
   pull_request:
     paths:
+      - ".github/workflows/bazel.yml"
       - ".bazelversion"
       - ".bazelrc"
       - "MODULE.bazel"
