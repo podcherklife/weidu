@@ -10,9 +10,11 @@ Consumable as a Bazel module by upstream projects:
         commit = "<commit>",
     )
 
-then reference //:weidu, //:weinstall, //:tolower (or build for the
-windows_x86_64 platform on a Windows host) — no local OCaml toolchain, opam
-or container runtime is required.  See bazel/README.md.
+then reference //:weidu, //:weinstall, //:tolower.  Unix targets build
+the OCaml toolchain from upstream source on the host (gcc + make); the
+windows_x86_64 target cross-compiles inside a pinned container image
+(a docker/podman runtime on the exec host is required).  See
+bazel/README.md.
 """
 
 module(
@@ -26,7 +28,9 @@ bazel_dep(name = "platforms", version = "1.0.0")
 ocaml_linux_toolchain_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "ocaml_linux_toolchain_repo")
 ocaml_linux_toolchain_repo(name = "ocaml_toolchain_linux")
 
-# Windows: assemble a self-contained toolchain from pinned MSYS2 packages.
+# Windows exes are cross-compiled in the container image from
+# docker/win-cross; this repo only provides the platform-gated stub
+# toolchain so module resolution succeeds on every host.
 ocaml_windows_toolchain_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "ocaml_windows_toolchain_repo")
 ocaml_windows_toolchain_repo(name = "ocaml_toolchain_windows")
 

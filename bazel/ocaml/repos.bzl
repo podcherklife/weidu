@@ -7,7 +7,8 @@ from a public upstream that the project already trusts:
     recorded by opam-repository for ocaml-base-compiler.4.08.1).
   * elkhound binaries: The-Mod-Elephant/elkhound release 1.0.3, the same
     assets referenced by .github/workflows/main.yaml.
-  * Windows toolchain: prebuilt MSYS2 archive packages from repo.msys2.org.
+  * Windows exes: cross-compiled in the container image from
+    docker/win-cross (its own supply chain is documented there).
 
 Nothing is hosted by this repository, and no container runtime is required
 for the Bazel build.
@@ -169,30 +170,31 @@ ocaml_linux_toolchain_repo = repository_rule(
 )
 
 # ---------------------------------------------------------------------------
-# Windows toolchain (assembled from pinned MSYS2 archive packages)
+# Windows toolchain: platform-gated stub only.
+#
+# The Windows exes are cross-compiled inside the container image from
+# docker/win-cross (see bazel/win_docker.bzl) — no native Windows toolchain
+# is assembled here.  This repository exists so that the registered
+# toolchain has a definition on every host; it must produce a valid stub
+# unconditionally (a fail() here would poison ALL Bazel invocations on a
+# Windows exec host at repository-fetch time, including ones that only
+# build the container path).
+#
+# (An earlier plan assembled this toolchain from pinned MSYS2 archive
+# packages; it was dropped because repo.msys2.org removes package versions
+# ~1.75 years after they leave the package database, which would break
+# pinned builds of this module over time.)
 # ---------------------------------------------------------------------------
 
-# Historical MSYS2 mingw64 packages that together form a self-contained,
-# Windows-native OCaml 4.14 + mingw-w64 gcc toolchain (OCaml >= 5 dropped
-# -unsafe-string, so 4.14.x is the newest usable series; it is also what
-# this project's own Windows CI uses).  Each entry: (repo path, sha256).
-_MSYS2_MINGW_PACKAGES = [
-    # populated in milestone 2 after verifying availability on repo.msys2.org
-]
-
 def _ocaml_windows_toolchain_impl(repo_ctx):
-    if repo_ctx.os.name != "windows":
-        # Stub: never selected on non-Windows exec platforms.
-        repo_ctx.file("BUILD.bazel", _TOOLCHAIN_BUILD_TEMPLATE.format(
-            compiler = "install/bin/ocamlopt.exe",
-            windres = "[]",
-        ))
-        return
-    fail("ocaml_windows_toolchain: Windows assembly not implemented yet (milestone 2).")
+    repo_ctx.file("BUILD.bazel", _TOOLCHAIN_BUILD_TEMPLATE.format(
+        compiler = "install/bin/ocamlopt.exe",
+        windres = "[]",
+    ))
 
 ocaml_windows_toolchain_repo = repository_rule(
     implementation = _ocaml_windows_toolchain_impl,
-    doc = "Assembles the Windows OCaml toolchain from pinned MSYS2 archive packages.",
+    doc = "Platform-gated stub for the (container-implemented) Windows build.",
 )
 
 # ---------------------------------------------------------------------------
