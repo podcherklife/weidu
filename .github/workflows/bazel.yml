@@ -121,8 +121,10 @@ jobs:
         if: steps.image-cache.outputs.cache-hit == 'true'
         run: docker load -i weidu-win-cross-image.tar
 
-      - name: Install wine64 (for the Windows exe sanity check)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wine64
+      - name: Install wine (for the Windows exe sanity check)
+        # The wine64 package ships only /usr/lib/wine/wine64 on Ubuntu
+        # 24.04; the /usr/bin/wine command comes from the wine package.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wine wine64
 
       - name: Cross-compile Windows exes (includes //:sanity_win)
         run: bazelisk build //:weidu_win_docker //:sanity_win
