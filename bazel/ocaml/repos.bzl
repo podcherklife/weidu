@@ -170,34 +170,6 @@ ocaml_linux_toolchain_repo = repository_rule(
 )
 
 # ---------------------------------------------------------------------------
-# Windows toolchain: platform-gated stub only.
-#
-# The Windows exes are cross-compiled inside the container image from
-# docker/win-cross (see bazel/win_docker.bzl) — no native Windows toolchain
-# is assembled here.  This repository exists so that the registered
-# toolchain has a definition on every host; it must produce a valid stub
-# unconditionally (a fail() here would poison ALL Bazel invocations on a
-# Windows exec host at repository-fetch time, including ones that only
-# build the container path).
-#
-# (An earlier plan assembled this toolchain from pinned MSYS2 archive
-# packages; it was dropped because repo.msys2.org removes package versions
-# ~1.75 years after they leave the package database, which would break
-# pinned builds of this module over time.)
-# ---------------------------------------------------------------------------
-
-def _ocaml_windows_toolchain_impl(repo_ctx):
-    repo_ctx.file("BUILD.bazel", _TOOLCHAIN_BUILD_TEMPLATE.format(
-        compiler = "install/bin/ocamlopt.exe",
-        windres = "[]",
-    ))
-
-ocaml_windows_toolchain_repo = repository_rule(
-    implementation = _ocaml_windows_toolchain_impl,
-    doc = "Platform-gated stub for the (container-implemented) Windows build.",
-)
-
-# ---------------------------------------------------------------------------
 # elkhound parser generator (host-side tool, fetched per exec host)
 # ---------------------------------------------------------------------------
 

@@ -28,17 +28,10 @@ bazel_dep(name = "platforms", version = "1.0.0")
 ocaml_linux_toolchain_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "ocaml_linux_toolchain_repo")
 ocaml_linux_toolchain_repo(name = "ocaml_toolchain_linux")
 
-# Windows exes are cross-compiled in the container image from
-# docker/win-cross; this repo only provides the platform-gated stub
-# toolchain so module resolution succeeds on every host.
-ocaml_windows_toolchain_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "ocaml_windows_toolchain_repo")
-ocaml_windows_toolchain_repo(name = "ocaml_toolchain_windows")
-
 # elkhound parser generator binaries (same release the Makefile/CI use).
 elkhound_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "elkhound_repo")
 elkhound_repo(name = "elkhound")
 
-register_toolchains(
-    "//bazel/ocaml:ocaml_linux",
-    "//bazel/ocaml:ocaml_windows",
-)
+# Windows target platforms are handled by the container cross-build
+# (//:weidu_win_docker); no native Windows OCaml toolchain is registered.
+register_toolchains("//bazel/ocaml:ocaml_linux")

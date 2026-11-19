@@ -1,9 +1,11 @@
-"""OCaml toolchain registrations for weidu-augmented.
+"""OCaml toolchain registration for weidu-augmented.
 
-Each toolchain is selected when exec and target platforms match: builds run
-natively on the host (Linux toolchain on Linux hosts, Windows toolchain on
-Windows hosts).  A future cross toolchain (Linux exec -> Windows target)
-can be added as a third toolchain without touching the rules.
+The toolchain is selected when the exec and target platforms match the
+Linux x86_64 constraints: builds run natively on the host.  Windows
+target platforms are handled by the container cross-build
+(//:weidu_win_docker, see bazel/win_docker.bzl) — no native Windows
+toolchain exists, so native OCaml rules fail toolchain resolution on
+Windows targets by design.
 """
 
 load("//bazel/ocaml:toolchain.bzl", "ocaml_toolchain")
@@ -35,33 +37,5 @@ toolchain(
         "@platforms//cpu:x86_64",
     ],
     toolchain = ":linux_toolchain_def",
-    toolchain_type = ":toolchain_type",
-)
-
-ocaml_toolchain(
-    name = "windows_toolchain_def",
-    target_compatible_with = ["@platforms//os:windows"],
-    bash = "@ocaml_toolchain_windows//:bash",
-    compiler = "@ocaml_toolchain_windows//:compiler",
-    elkhound = "@elkhound//:elkhound",
-    ocaml = "@ocaml_toolchain_windows//:ocaml",
-    ocamllex = "@ocaml_toolchain_windows//:ocamllex",
-    ocamlyacc = "@ocaml_toolchain_windows//:ocamlyacc",
-    tool_files = "@ocaml_toolchain_windows//:tool_files",
-    windres = "@ocaml_toolchain_windows//:windres",
-    os = "windows",
-)
-
-toolchain(
-    name = "ocaml_windows",
-    exec_compatible_with = [
-        "@platforms//os:windows",
-        "@platforms//cpu:x86_64",
-    ],
-    target_compatible_with = [
-        "@platforms//os:windows",
-        "@platforms//cpu:x86_64",
-    ],
-    toolchain = ":windows_toolchain_def",
     toolchain_type = ":toolchain_type",
 )

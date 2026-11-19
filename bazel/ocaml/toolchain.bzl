@@ -31,7 +31,7 @@ def _ocaml_toolchain_impl(ctx):
         tool_files = ctx.attr.tool_files[DefaultInfo].files,
         stdlib_rel = stdlib_dir,           # execroot-relative stdlib dir
         bin_rel = bin_dir,                 # execroot-relative compiler bin dir
-        os = ctx.attr.os,                  # "linux" or "windows"
+        os = ctx.attr.os,                  # "linux"
         action_path = bin_dir,
     )]
 
@@ -46,6 +46,8 @@ ocaml_toolchain = rule(
         "bash": attr.label(mandatory = True, allow_single_file = True),
         "windres": attr.label(allow_single_file = True),
         "tool_files": attr.label(mandatory = True),
-        "os": attr.string(mandatory = True, values = ["linux", "windows"]),
+        # Informational; windows targets go through the container
+        # cross-build, which does not use a toolchain at all.
+        "os": attr.string(mandatory = True, values = ["linux"]),
     },
 )
