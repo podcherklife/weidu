@@ -2,7 +2,8 @@
 
 Bazel build rules for weidu-augmented live under this directory:
 bazel/ocaml/ (toolchain + core ocaml rules) and bazel/win_docker.bzl
-(container-backed Windows cross-build).  See bazel/README.md.
+(container-backed Windows cross-build, including its per-exec-platform
+launcher scripts).  See bazel/README.md.
 """
 
 package(default_visibility = ["//visibility:public"])

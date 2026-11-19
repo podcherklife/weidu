@@ -59,8 +59,8 @@ String weidu = Runfiles.preferDevSources().rlocation(System.getenv("WEIDU_BIN"))
 | Target platform | Exec host | Requirements |
 |---|---|---|
 | unix (default) | any linux/macOS | host `gcc` (or `cc`/`clang`), `make`, `bash` — for the one-time OCaml toolchain source build |
-| `windows_x86_64` | linux/CI (or any host with docker) | a working `docker` or `podman` |
-| `windows_x86_64` | Windows host | not yet: the container launcher is a POSIX script; a cmd-based Windows-exec launcher is planned |
+| `windows_x86_64` | linux/macOS/CI | a working `docker` or `podman` |
+| `windows_x86_64` | Windows host | bazelisk + Docker Desktop running, or docker-ce started inside the default WSL2 distro (the launcher detects `docker.exe` first, then falls back to `wsl.exe -e docker`) |
 
 First-fetch behavior:
 
@@ -128,9 +128,13 @@ enables force-safe-string by default while WeiDU's Makefile passes
   minimal Starlark rule set driving the native OCaml build; module
   compilation follows the exact `Depends` order with a conservative
   over-approximated dependency chain.
-* `bazel/win_docker.bzl` — the container cross-build: a sandboxed,
-  cacheable source-bundle action plus an unsandboxed docker/podman
-  orchestration action (runtime detection, content-hash image tag,
-  stdin-fed container run).
+* `bazel/win_docker.bzl` — the container cross-build: one unsandboxed
+  action whose launcher script is materialized per exec host (POSIX
+  script for linux/macOS/CI, cmd batch for Windows hosts), handling
+  source bundling (`tar -T` response file), lazy content-hash-tagged
+  image builds, the container run and the exe copy-out.  The
+  Windows-exec path (Docker Desktop / WSL2 detection) follows the same
+  relative-paths-only container discipline; it mirrors the CI-validated
+  POSIX flow and has not yet been exercised on a real Windows machine.
 * `platforms/BUILD.bazel` — the target platform definitions used by the
   `select()` dispatch and `--platforms` overrides.

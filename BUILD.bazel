@@ -673,6 +673,9 @@ weidu_win_docker(
     name = "weidu_win_docker",
     build_script = "docker/win-cross/build_weidu.sh",
     dockerfile = "docker/win-cross/Dockerfile",
+    # Launcher script materialized per exec host by the
+    # win_docker_launcher repo rule (POSIX script / cmd batch file).
+    launcher = "@win_docker_launcher//:launcher",
     srcs = [":docker_srcs"],
     tags = ["manual"],
 )

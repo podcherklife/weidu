@@ -32,6 +32,11 @@ ocaml_linux_toolchain_repo(name = "ocaml_toolchain_linux")
 elkhound_repo = use_repo_rule("//bazel/ocaml:repos.bzl", "elkhound_repo")
 elkhound_repo(name = "elkhound")
 
+# WeiduDockerBuild launcher script, materialized for the exec host
+# (POSIX script on linux/macOS, cmd batch on Windows).
+win_docker_launcher_repo = use_repo_rule("//bazel:win_docker.bzl", "win_docker_launcher_repo")
+win_docker_launcher_repo(name = "win_docker_launcher")
+
 # Windows target platforms are handled by the container cross-build
 # (//:weidu_win_docker); no native Windows OCaml toolchain is registered.
 register_toolchains("//bazel/ocaml:ocaml_linux")
