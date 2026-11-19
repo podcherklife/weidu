@@ -65,9 +65,9 @@ RUN mkdir -p /opt/opam-overlay/packages/ocaml-windows64 \
  && opam repository add overlay /opt/opam-overlay --set-default
 
 # Host compiler (codegen scripts) with the same unsafe-string configuration
-# the project's own Windows CI uses (the comma form is one argument:
-# compiler + option package).
-RUN opam switch create cross "ocaml-variants.4.14.1+options,ocaml-option-default-unsafe-string" -y
+# the project's own Windows CI uses.  --packages defines the switch
+# invariant (the documented way to create a switch with an ocaml-option-*).
+RUN opam switch create cross --packages=ocaml-variants.4.14.1+options,ocaml-option-default-unsafe-string -y
 
 # The mingw64 cross-compiler itself (~15 min build).
 RUN opam install -y --switch cross ocamlfind ocaml-windows64.4.14.1
@@ -82,4 +82,8 @@ RUN mkdir -p /opt/tools \
 COPY build_weidu.sh /opt/win-cross/build_weidu.sh
 
 WORKDIR /work
-ENTRYPOINT ["/opt/win-cross/build_weidu.sh"]
+# /work exists in the image filesystem itself: the source bundle is fed
+# via stdin (`cat > /work/src.tar` inside the container), and `docker cp`
+# of the outputs out of the exited container needs nothing extra.  No
+# ENTRYPOINT: the invoking launcher passes the full container command.
+RUN mkdir -p /work /work/out

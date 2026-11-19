@@ -70,7 +70,7 @@ def _stage(src_file, out_dir, staged_name, lines):
         name = staged_name,
     ))
 
-def _run(ctx, tc, script, inputs, outputs, tools, mnemonic):
+def _run(ctx, tc, script, inputs, outputs, tools, mnemonic, exec_requirements = {}):
     ctx.actions.run(
         inputs = depset(inputs, transitive = [tc.tool_files]),
         outputs = outputs,
@@ -80,6 +80,7 @@ def _run(ctx, tc, script, inputs, outputs, tools, mnemonic):
         env = {},
         mnemonic = mnemonic,
         use_default_shell_env = False,
+        execution_requirements = exec_requirements,
     )
 
 def _ocaml_module_impl(ctx):
@@ -404,6 +405,9 @@ def _ocaml_sanity_check_impl(ctx):
     """
     tc = ctx.toolchains["//bazel/ocaml:toolchain_type"]
     binary = ctx.executable.binary
+    # Optional command prefix for host-side execution environments (e.g.
+    # "wine" when checking the PE exe produced by the docker cross-build).
+    runner = ctx.attr.runner + " " if ctx.attr.runner else ""
     out = ctx.actions.declare_file(ctx.label.name + ".ok")
 
     stage_files = []
@@ -411,35 +415,52 @@ def _ocaml_sanity_check_impl(ctx):
         stage_files.append(t[DefaultInfo].files.to_list()[0])
 
     lines = [_preamble(tc, out.dirname)]
+    if runner:
+        # Host-side runners (wine) need a writable HOME/prefix; the action
+        # environment is minimal, so give wine a fresh private prefix.
+        # Paired with the "local" execution requirement (unsandboxed) —
+        # wine spawns helper processes and sockets the hermetic sandbox
+        # breaks.  (wine also refuses /tmp itself as prefix root.)
+        lines.append('WINEPREFIX=$(mktemp -d) && export WINEPREFIX')
     lines.append("mkdir -p run")
     lines.append('cd run')
-    lines.append('"$ROOT/{bin}" --version > version.txt 2>&1'.format(bin = binary.path))
+    lines.append('{runner}"$ROOT/{bin}" --version > version.txt 2>&1'.format(runner = runner, bin = binary.path))
     lines.append('grep -q -- "WeiDU version" version.txt')
     lines.append('grep -q -- "-augmented" version.txt')
     for t, rel in ctx.attr.stage.items():
         f = t[DefaultInfo].files.to_list()[0]
         lines.append('cp "$ROOT/{s}" "{d}"'.format(s = f.path, d = rel))
-    lines.append('"$ROOT/{bin}" --nogame "{good}" > compile.txt 2>&1'.format(bin = binary.path, good = ctx.attr.good_file))
+    lines.append('{runner}"$ROOT/{bin}" --nogame "{good}" > compile.txt 2>&1'.format(runner = runner, bin = binary.path, good = ctx.attr.good_file))
     lines.append('test -s FOOZLE.dlg')
     lines.append('head -c 8 FOOZLE.dlg | grep -q -- "DLG V1.0"')
-    lines.append('test -s " -- NO DIALOG.TLK -- "')
-    lines.append('"$ROOT/{bin}" --nogame --text FOOZLE.dlg > decompile.txt 2>&1'.format(bin = binary.path))
+    # Windows APIs strip trailing spaces from filenames (wine mirrors this),
+    # so on PE-exe paths the synthesized TLK may end without the trailing
+    # space; the full name is what the unix-native build produces.
+    lines.append('test -s " -- NO DIALOG.TLK --" || test -s " -- NO DIALOG.TLK -- "')
+    lines.append('{runner}"$ROOT/{bin}" --nogame --text FOOZLE.dlg > decompile.txt 2>&1'.format(runner = runner, bin = binary.path))
     lines.append('test -s FOOZLE.d')
     lines.append('grep -q -- "{magic}" FOOZLE.d'.format(magic = ctx.attr.roundtrip_expect))
     # WeiDU exits 0 even on parse errors (top-level handler prints FATAL
     # ERROR), so the diagnostic output is the assertion, not the exit code.
-    lines.append('"$ROOT/{bin}" --nogame "{bad}" > bad.txt 2>&1 || true'.format(bin = binary.path, bad = ctx.attr.bad_file))
+    lines.append('{runner}"$ROOT/{bin}" --nogame "{bad}" > bad.txt 2>&1 || true'.format(runner = runner, bin = binary.path, bad = ctx.attr.bad_file))
     lines.append('grep -q -- "FATAL ERROR" bad.txt')
     lines.append('echo ok > "$ROOT/{out}"'.format(out = out.path))
 
+    exec_reqs = {"local": "1", "no-sandbox": "1"} if ctx.attr.local else {}
     _run(ctx, tc, "\n".join(lines), [binary] + stage_files, [out],
-         [tc.bash], "OcamlSanityCheck")
+         [tc.bash], "OcamlSanityCheck", exec_reqs)
     return [DefaultInfo(files = depset([out]))]
 
 ocaml_sanity_check = rule(
     implementation = _ocaml_sanity_check_impl,
     attrs = {
         "binary": attr.label(mandatory = True, executable = True, cfg = "exec"),
+        # Command prefix used to invoke the binary (e.g. "wine" for a
+        # Windows exe checked on a linux host).  Empty = run directly.
+        "runner": attr.string(default = ""),
+        # Run unsandboxed (needed when the runner needs a real HOME/tmp,
+        # e.g. wine).
+        "local": attr.bool(default = False),
         # fixture files staged into the scratch run dir
         "stage": attr.label_keyed_string_dict(allow_files = True),
         # staged names of the good and bad D inputs
