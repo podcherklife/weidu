@@ -12,6 +12,20 @@
 # Windows job: pending the MSYS2-based Windows toolchain (see
 # bazel/ocaml/repos.bzl, ocaml_windows_toolchain_repo).
 
+# Bazel build of weidu-augmented (Linux natives + Windows exes).
+#
+# Coexists with the legacy opam/make workflows (main.yaml, docker.yaml,
+# release.yaml): GitHub Actions workflows trigger independently, so this file
+# neither triggers nor disables them.  This workflow is path-filtered so it
+# only runs when something that feeds the Bazel build changes.
+#
+# The build is self-contained: the Linux OCaml toolchain is produced/fetched
+# by the repository rules in bazel/ocaml/repos.bzl from public upstream
+# sources, and the Windows exes are cross-compiled inside the pinned
+# container image from docker/win-cross (built lazily by the build itself
+# and cached across runs via actions/cache).  See MODULE.bazel and
+# bazel/README.md.
+
 name: bazel
 
 on:
@@ -26,6 +40,7 @@ on:
       - "BUILD.bazel"
       - "bazel/**"
       - "platforms/**"
+      - "docker/**"
       - "src/**"
       - "elkhound/**"
       - "zlib/**"
@@ -36,6 +51,8 @@ on:
       - "hashtbl-4.03.0/**"
       - "scripts/**"
       - "windows_resources/**"
+      # sanity-check fixtures
+      - "test/**"
   pull_request:
     paths:
       - ".github/workflows/bazel.yml"
@@ -46,6 +63,7 @@ on:
       - "BUILD.bazel"
       - "bazel/**"
       - "platforms/**"
+      - "docker/**"
       - "src/**"
       - "elkhound/**"
       - "zlib/**"
@@ -56,6 +74,8 @@ on:
       - "hashtbl-4.03.0/**"
       - "scripts/**"
       - "windows_resources/**"
+      # sanity-check fixtures
+      - "test/**"
   workflow_dispatch:
 
 permissions:
@@ -88,11 +108,56 @@ jobs:
       - name: Build (includes //:sanity check)
         run: bazelisk build //...
 
+      # --- Windows exes (docker cross-compile; see docker/win-cross) ---
+
+      - name: Restore cross-compile image cache
+        id: image-cache
+        uses: actions/cache@v4
+        with:
+          path: weidu-win-cross-image.tar
+          key: weidu-win-cross-${{ hashFiles('docker/win-cross/Dockerfile', 'docker/win-cross/build_weidu.sh') }}
+
+      - name: Load cross-compile image
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: docker load -i weidu-win-cross-image.tar
+
+      - name: Install wine (for the Windows exe sanity check)
+        # The wine64 package ships only /usr/lib/wine/wine64 on Ubuntu
+        # 24.04; the /usr/bin/wine command comes from the wine package.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wine wine64
+
+      - name: Cross-compile Windows exes (includes //:sanity_win)
+        run: bazelisk build //:weidu_win_docker //:sanity_win
+
+      - name: Save cross-compile image
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: |
+          TAG="weidu-win-cross:$(cat docker/win-cross/Dockerfile docker/win-cross/build_weidu.sh | sha256sum | cut -c1-16)"
+          docker save "$TAG" -o weidu-win-cross-image.tar
+
+      - name: Collect Windows binaries
+        run: |
+          BIN="$(bazelisk info bazel-bin)"
+          mkdir -p dist-win
+          cp "$BIN/win-docker/weidu.exe" "$BIN/win-docker/weinstall.exe" "$BIN/win-docker/tolower.exe" dist-win/
+          ls -la dist-win/
+
+      - name: Upload Windows binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: weidu-windows-x86_64
+          path: dist-win/
+
       - name: Collect binaries
+        # The native targets are named *_native (the //:weidu etc. names
+        # belong to the platform-dispatch aliases), so their outputs land
+        # at bazel-bin/weidu_native etc.; dist/ gets the consumer names.
         run: |
           BIN="$(bazelisk info bazel-bin)"
           mkdir -p dist
-          cp "$BIN/weidu" "$BIN/weinstall" "$BIN/tolower" dist/
+          cp "$BIN/weidu_native" dist/weidu
+          cp "$BIN/weinstall_native" dist/weinstall
+          cp "$BIN/tolower_native" dist/tolower
           ls -la dist/
 
       - name: Upload binaries

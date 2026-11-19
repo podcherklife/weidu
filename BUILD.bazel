@@ -31,6 +31,7 @@ load(
     "ocaml_windres",
     "ocaml_write",
 )
+load("//bazel:win_docker.bzl", "weidu_win_docker")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -396,7 +397,7 @@ ocaml_module_chain(_MODULES)
 _ALL_LABELS = [":" + m["name"] for m in _MODULES]
 
 ocaml_binary(
-    name = "weidu",
+    name = "weidu_native",
     modules = _ALL_LABELS,
     c_modules = _C_MODULES_WEIDU,
     extra_linkopts = select({
@@ -415,7 +416,7 @@ ocaml_module(
     deps = _ALL_LABELS,
 )
 ocaml_binary(
-    name = "weinstall",
+    name = "weinstall_native",
     modules = [
         ":batList",
         ":batteriesInit",
@@ -431,7 +432,7 @@ ocaml_module(
     deps = _ALL_LABELS,
 )
 ocaml_binary(
-    name = "tolower",
+    name = "tolower_native",
     modules = [
         ":batList",
         ":batteriesInit",
@@ -445,7 +446,7 @@ ocaml_binary(
 ocaml_sanity_check(
     name = "sanity",
     bad_file = "not-token.d",
-    binary = ":weidu",
+    binary = ":weidu_native",
     good_file = "make-foozle.d",
     roundtrip_expect = "Abracadabra",
     stage = {
@@ -461,4 +462,261 @@ filegroup(
         ":weinstall",
         ":tolower",
     ],
+)
+
+# ---------------------------------------------------------------------------
+# Windows cross-build via the container image in docker/win-cross.
+#
+# weidu_win_docker bundles the tracked sources below into src.tar and runs
+# the project's own GNU make build inside the container (see
+# bazel/win_docker.bzl).  Tagged manual so plain `bazel build //...` stays
+# light; CI (and consumers) build it explicitly, or get it through the
+# platform-dispatched aliases below.
+#
+# docker_srcs is an explicit list mirroring the tracked files of these
+# directories (never a glob: stale gitignored generated files in src/ must
+# not leak into the bundle).
+# ---------------------------------------------------------------------------
+filegroup(
+    name = "docker_srcs",
+    srcs = [
+        # top-level make engine
+        "Configuration",
+        "Depends",
+        "Makefile",
+        "Makefile.ocaml",
+        # batteries-lite
+        "batteries-lite/batList.ml",
+        "batteries-lite/batList.mli",
+        "batteries-lite/batteriesInit.ml",
+        # elkhound OCaml runtime (Depends' smutil/glr/lrparse/... modules)
+        "elkhound/arraystack.ml",
+        "elkhound/glr.ml",
+        "elkhound/lexerint.ml",
+        "elkhound/license.txt",
+        "elkhound/lrparse.ml",
+        "elkhound/objpool.ml",
+        "elkhound/parsetables.ml",
+        "elkhound/smutil.ml",
+        "elkhound/useract.ml",
+        # fcase / glob
+        "fcase/fcase.c",
+        "glob/glob_unix.c",
+        "glob/glob_win32.c",
+        # hashtbl-4.03.0
+        "hashtbl-4.03.0/hashtblinit.ml",
+        "hashtbl-4.03.0/myhashtbl.ml",
+        "hashtbl-4.03.0/myhashtbl.mli",
+        # codegen scripts
+        "scripts/build-augmented.sh",
+        "scripts/make_compr_parser.ml",
+        "scripts/make_gr.ml",
+        "scripts/make_old_mll.ml",
+        "scripts/make_par.ml",
+        "scripts/make_tll.ml",
+        "scripts/make_tph.ml",
+        # src
+        "src/aliases.in",
+        "src/arch_legacy_osx.ml",
+        "src/arch_mingw.ml",
+        "src/arch_osx.ml",
+        "src/arch_unix.ml",
+        "src/astdump.ml",
+        "src/astdumpBcs.ml",
+        "src/astdumpDlg.ml",
+        "src/astdumpTp.ml",
+        "src/automate.ml",
+        "src/autoupdate.ml",
+        "src/baflexer.mll",
+        "src/bafparser.mly",
+        "src/bcslexer.mll",
+        "src/bcs.ml",
+        "src/bcsparser.mly",
+        "src/biff.ml",
+        "src/case_ins_linux.ml",
+        "src/case_ins_mac.ml",
+        "src/case_ins_win.ml",
+        "src/cbif.ml",
+        "src/changelog.ml",
+        "src/createprocess_win32.c",
+        "src/cre.ml",
+        "src/dc.ml",
+        "src/diff.ml",
+        "src/dlexer.mll",
+        "src/dlg.ml",
+        "src/dparser.mly",
+        "src/ids.ml",
+        "src/idslexer.mll",
+        "src/idslexer2.mll",
+        "src/idsparser.mly",
+        "src/json.ml",
+        "src/key.ml",
+        "src/kit.ml",
+        "src/licence.ml",
+        "src/load.ml",
+        "src/main.ml",
+        "src/modder.ml",
+        "src/mos.ml",
+        "src/myarg.ml",
+        "src/mymarshal.ml",
+        "src/myxdiff.ml",
+        "src/nix.c",
+        "src/parsewrappers.ml",
+        "src/parsing.ml",
+        "src/refactorbaf.ml",
+        "src/refactorbaflexer.mll",
+        "src/refactorbafparser.mly",
+        "src/refactordlexer.mll",
+        "src/refactordparser.mly",
+        "src/reg.c",
+        "src/sav.ml",
+        "src/sql.ml",
+        "src/stats.ml",
+        "src/tlexer.in",
+        "src/tlk.ml",
+        "src/toldlexer.in",
+        "src/toldparser.mly",
+        "src/tolower.ml",
+        "src/tp.ml",
+        "src/tpaction.ml",
+        "src/tparser.in",
+        "src/tppe.ml",
+        "src/tphelp.ml",
+        "src/tppatch.ml",
+        "src/tpstate.ml",
+        "src/tpuninstall.ml",
+        "src/tpwork.ml",
+        "src/trace.ml",
+        "src/trealparserin.in",
+        "src/util.ml",
+        "src/var.ml",
+        "src/version.ml",
+        "src/weinstall.ml",
+        "src/xdiff.c",
+        "src/xor.ml",
+        # src/tph ( WeiDU's TPA helper library: include/ and define/ )
+        "src/tph/define/add_spell.tpa",
+        "src/tph/define/fl#add_journal_lua.tpa",
+        "src/tph/define/fl#create.tpa",
+        "src/tph/define/lc_fix_missile_ids.tpa",
+        "src/tph/define/tb#pretty_print.tpp",
+        "src/tph/define/whats_this.txt",
+        "src/tph/include/a7_pvrz.tpa",
+        "src/tph/include/cd_functions.tpa",
+        "src/tph/include/fj_are_struct.tpa",
+        "src/tph/include/fj_cre_validity.tpa",
+        "src/tph/include/fl_functions.tpa",
+        "src/tph/include/get_unique_file_name.tpa",
+        "src/tph/include/g_functions.tpa",
+        "src/tph/include/g_macros.tpa",
+        "src/tph/include/handle_audio.tpa",
+        "src/tph/include/handle_charsets.tpa",
+        "src/tph/include/handle_tilesets.tpa",
+        "src/tph/include/res_of_spell_ids.tpa",
+        "src/tph/include/sc#addwmpare.tpa",
+        "src/tph/include/star_of_filespec.tpa",
+        "src/tph/include/store_functions.tpa",
+        "src/tph/include/tb#macros.tpa",
+        "src/tph/include/tb#tob_hacks.tpa",
+        "src/tph/include/whats_this.txt",
+        "src/tph/include/worldmap_links.tpa",
+        # windows resource script
+        "windows_resources/weidu_resources.rc",
+        # zlib
+        "zlib/adler32.c",
+        "zlib/compress.c",
+        "zlib/crc32.c",
+        "zlib/crc32.h",
+        "zlib/deflate.c",
+        "zlib/deflate.h",
+        "zlib/example.c",
+        "zlib/gzio.c",
+        "zlib/infback.c",
+        "zlib/inffast.c",
+        "zlib/inffast.h",
+        "zlib/inffixed.h",
+        "zlib/inflate.c",
+        "zlib/inflate.h",
+        "zlib/inftrees.c",
+        "zlib/inftrees.h",
+        "zlib/minigzip.c",
+        "zlib/trees.c",
+        "zlib/trees.h",
+        "zlib/uncompr.c",
+        "zlib/zconf.h",
+        "zlib/zlib.c",
+        "zlib/zlibdefs.h",
+        "zlib/zlib.h",
+        "zlib/zutil.c",
+        "zlib/zutil.h",
+        # xdiff
+        "xdiff/xadler32.h",
+        "xdiff/xbdiff.h",
+        "xdiff/xdiff.h",
+        "xdiff/xdiffi.c",
+        "xdiff/xdiffi.h",
+        "xdiff/xemit.c",
+        "xdiff/xemit.h",
+        "xdiff/xinclude.h",
+        "xdiff/xmacros.h",
+        "xdiff/xmissing.h",
+        "xdiff/xpatchi.c",
+        "xdiff/xprepare.c",
+        "xdiff/xprepare.h",
+        "xdiff/xtypes.h",
+        "xdiff/xutils.c",
+        "xdiff/xutils.h",
+    ],
+)
+
+weidu_win_docker(
+    name = "weidu_win_docker",
+    build_script = "docker/win-cross/build_weidu.sh",
+    dockerfile = "docker/win-cross/Dockerfile",
+    srcs = [":docker_srcs"],
+    tags = ["manual"],
+)
+
+# Platform dispatch: on Windows target platforms the exes come from the
+# container cross-build (works on any host with docker or podman; a
+# Windows exec host needs WSL2 docker or Docker Desktop), otherwise from
+# the native toolchain build.
+alias(
+    name = "weidu",
+    actual = select({
+        "//platforms:windows": ":weidu_win_docker",
+        "//conditions:default": ":weidu_native",
+    }),
+)
+alias(
+    name = "weinstall",
+    actual = select({
+        "//platforms:windows": ":weidu_win_docker",
+        "//conditions:default": ":weinstall_native",
+    }),
+)
+alias(
+    name = "tolower",
+    actual = select({
+        "//platforms:windows": ":weidu_win_docker",
+        "//conditions:default": ":tolower_native",
+    }),
+)
+
+# Same assertions as //:sanity, against the PE exe produced by the docker
+# cross-build, executed through wine (hosts with wine installed; the CI
+# job installs wine64).  Manual: only built when requested explicitly.
+ocaml_sanity_check(
+    name = "sanity_win",
+    bad_file = "not-token.d",
+    binary = ":weidu_win_docker",
+    good_file = "make-foozle.d",
+    local = True,
+    roundtrip_expect = "Abracadabra",
+    runner = "wine",
+    stage = {
+        "test/bad-syntax/not-token.d": "not-token.d",
+        "test/no-game/make-foozle.d": "make-foozle.d",
+    },
+    tags = ["manual"],
 )
