@@ -149,10 +149,15 @@ jobs:
           path: dist-win/
 
       - name: Collect binaries
+        # The native targets are named *_native (the //:weidu etc. names
+        # belong to the platform-dispatch aliases), so their outputs land
+        # at bazel-bin/weidu_native etc.; dist/ gets the consumer names.
         run: |
           BIN="$(bazelisk info bazel-bin)"
           mkdir -p dist
-          cp "$BIN/weidu" "$BIN/weinstall" "$BIN/tolower" dist/
+          cp "$BIN/weidu_native" dist/weidu
+          cp "$BIN/weinstall_native" dist/weinstall
+          cp "$BIN/tolower_native" dist/tolower
           ls -la dist/
 
       - name: Upload binaries
